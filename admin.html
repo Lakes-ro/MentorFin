@@ -514,6 +514,15 @@
             <h4>📊 ANÁLISE DETALHADA</h4>
             <div class="analise-grid" id="analise-grid"></div>
           </div>
+
+          <!-- Observações e dicas geradas automaticamente com base nos
+               números acima — ver gerarInsightsDashboard() em
+               dashboards.js. -->
+          <div class="insights-section">
+            <h4>💡 Observações e Dicas</h4>
+            <p class="insights-resumo" id="insights-dashboard-resumo"></p>
+            <div class="insights-list" id="insights-dashboard-lista"></div>
+          </div>
         </div>
 
         <!-- ABA: DRE (Demonstração do Resultado) -->
@@ -692,6 +701,28 @@
     </div>
   </div>
 
+  <!-- Modal: Mensagens com o Cliente — conversa direta (ver
+       mensagens-admin.js). Diferente do modal "Comentários" acima:
+       comentários são notas PRIVADAS do admin; aqui é uma conversa que
+       o PRÓPRIO CLIENTE vê e responde pelo painel dele. -->
+  <div id="modal-mensagens-cliente" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-mensagens-cliente-title">💬 Mensagens</h3>
+        <button class="modal-close" data-modal="modal-mensagens-cliente">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="mensagens-admin-lista" class="mensagens-admin-lista">
+          <p class="empty-state">Carregando conversa...</p>
+        </div>
+        <div class="mensagens-admin-form">
+          <textarea id="mensagem-admin-texto" rows="2" placeholder="Escreva uma resposta..." style="flex:1;"></textarea>
+          <button type="button" class="btn-primary-sm" id="btn-enviar-mensagem-admin">Enviar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div id="toast" class="toast hidden"></div>
 
@@ -724,6 +755,7 @@
   <script src="regras-aprendidas.js"></script>
   <script src="importacao-extrato.js"></script>
   <script src="lancamentos-admin.js"></script>
+  <script src="mensagens-admin.js"></script>
 
 </body>
 </html>

@@ -119,6 +119,11 @@
                     onclick="switchClientView('cli-goals', event)">🎯 Metas</button>
                 <button class="sidebar__nav-item"
                     onclick="switchClientView('cli-planning', event)">📋 Planejamento</button>
+                <button class="sidebar__nav-item sidebar__nav-item--mensagens" id="navMensagensCliente"
+                    onclick="switchClientView('cli-mensagens', event)">
+                    💬 Mensagens
+                    <span id="mensagensBadge" class="mensagens-badge hidden">0</span>
+                </button>
                 <button class="sidebar__nav-item sidebar__nav-item--profile"
                     onclick="showClientProfile()">👤 Perfil</button>
             </nav>
@@ -210,6 +215,36 @@
                             <span class="bi-value" id="biCoverage">0%</span>
                         </div>
                     </div>
+                </div>
+
+                <!-- CTA: aparece só quando o cliente ainda não tem
+                     nenhuma meta cadastrada — ver DashboardModule.renderCtaMeta()
+                     em dashboard.js. -->
+                <div id="dashMetaCta" class="card meta-cta-card hidden">
+                    <div class="meta-cta-card__texto">
+                        <h3>🎯 Ainda não tens uma meta de gastos</h3>
+                        <p>Definir um objetivo — mesmo pequeno — ajuda a acompanhar se o mês está indo como planeado.</p>
+                    </div>
+                    <button type="button" class="btn btn--primary" onclick="navegarParaSecaoCliente('cli-goals')">
+                        + Definir Meta de Gastos
+                    </button>
+                </div>
+
+                <!-- Maiores Gastos do Período — cartões com ícone por
+                     categoria, ver DashboardModule (dashboard.js). -->
+                <div class="card">
+                    <h3>🏆 Maiores Gastos do Período</h3>
+                    <div id="dashTopGastosGrid" class="gasto-icon-grid">
+                        <p class="empty-state">Carregando...</p>
+                    </div>
+                </div>
+
+                <!-- Observações automáticas — linguagem simples, sem
+                     jargão técnico. Ver DashboardModule (dashboard.js). -->
+                <div class="card">
+                    <h3>💡 Observações sobre o seu período</h3>
+                    <p class="insights-resumo" id="dashInsightsResumo"></p>
+                    <div id="dashInsightsLista" class="insights-list"></div>
                 </div>
             </section>
 
@@ -376,6 +411,17 @@
                         </form>
                     </div>
 
+                    <!-- Dica: explica como o "Economizado" sobe sozinho ao
+                         vincular uma transação de Investimento a uma meta. -->
+                    <div class="meta-dica-box">
+                        💡 <strong>Como fazer o "Economizado" da sua meta subir sozinho:</strong>
+                        na aba <strong>Transações</strong>, registe um lançamento com uma categoria de
+                        <strong>Investimento</strong> (ex: "Aporte", "Reserva de Emergência") — vai aparecer um
+                        campo <strong>"🎯 Vincular a uma Meta"</strong>. Escolha a meta ali e o valor entra
+                        automaticamente no progresso dela. Também dá pra editar o valor manualmente clicando em
+                        ✏️ em qualquer meta abaixo.
+                    </div>
+
                     <div id="clientMetasList" class="metas-client-grid">
                         <p class="empty-state">Nenhuma meta criada</p>
                     </div>
@@ -390,6 +436,27 @@
                     <div id="clientPlanningList">
                         <p class="empty-state">Aguardando planejamento do administrador...</p>
                     </div>
+                </div>
+            </section>
+
+            <!-- MENSAGENS CLIENTE — fala direto com o administrador,
+                 sem precisar sair do app. Ver mensagens-cliente.js. -->
+            <section id="cli-mensagens" class="view-section">
+                <div class="card mensagens-card">
+                    <h3>💬 Fale com o Administrador</h3>
+                    <p style="color:var(--text-muted); font-size:13px; margin-bottom:14px;">
+                        Tem alguma dúvida sobre um lançamento, categoria ou o seu planejamento? Mande uma mensagem —
+                        o administrador recebe um aviso e responde por aqui.
+                    </p>
+
+                    <div id="mensagensLista" class="mensagens-lista">
+                        <p class="empty-state">Carregando conversa...</p>
+                    </div>
+
+                    <form id="formEnviarMensagem" class="mensagens-form" onsubmit="return false;">
+                        <textarea id="mensagemTexto" rows="2" placeholder="Escreva sua mensagem..." maxlength="1000"></textarea>
+                        <button type="button" id="btnEnviarMensagem" class="btn btn--primary" onclick="handleEnviarMensagemCliente()">Enviar</button>
+                    </form>
                 </div>
             </section>
         </main>
@@ -421,6 +488,40 @@
             <div id="novaCategoriaSugestao" class="categoria-sugestao-ia hidden"></div>
             <button type="button" onclick="handleClassificarNovaCategoria()" id="btnClassificarCategoria" class="btn btn--secondary" style="width:100%; margin-top:6px;">Analisar categoria</button>
             <button type="button" onclick="handleConfirmarNovaCategoria()" id="btnConfirmarCategoria" class="btn btn--primary hidden" style="width:100%; margin-top:10px;">✓ Confirmar e Salvar</button>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================
+     MODAL: EDITAR META
+============================================================ -->
+<div id="modalEditarMeta" class="modal hidden">
+    <div class="modal__content" style="max-width:420px;">
+        <header class="modal__header">
+            <h2>✏️ Editar Meta</h2>
+            <button onclick="closeModal('modalEditarMeta')" class="modal__close-btn">✕</button>
+        </header>
+        <div class="modal__body">
+            <input type="hidden" id="editMetaId">
+            <div class="form-group">
+                <label>Nome da Meta</label>
+                <input type="text" id="editMetaNome" placeholder="Ex: Fundo de Emergência">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Valor Necessário (R$)</label>
+                    <input type="number" id="editMetaNecessario" step="0.01" min="0">
+                </div>
+                <div class="form-group">
+                    <label>Valor Economizado (R$)</label>
+                    <input type="number" id="editMetaEconomizado" step="0.01" min="0">
+                </div>
+            </div>
+            <p style="color:var(--text-muted); font-size:12px; line-height:1.5;">
+                💡 O valor economizado também sobe sozinho quando você vincula uma transação de Investimento a
+                esta meta na aba Transações — editar aqui é útil pra ajustes manuais.
+            </p>
+            <button type="button" onclick="handleSalvarEdicaoMeta()" id="btnSalvarEdicaoMeta" class="btn btn--primary" style="width:100%;">Salvar Alterações</button>
         </div>
     </div>
 </div>
@@ -533,6 +634,7 @@
 <script src="regras-aprendidas.js"></script>
 <script src="importacao-extrato.js"></script>
 <script src="categoria-personalizada.js"></script>
+<script src="mensagens-cliente.js"></script>
 
 </body>
 </html>

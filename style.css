@@ -590,6 +590,84 @@ input::placeholder {
   margin-top: auto;
 }
 
+.sidebar__nav-item--mensagens { position: relative; }
+
+.mensagens-badge {
+  margin-left: auto;
+  background: var(--red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 17px;
+  height: 17px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+
+/* ── Mensagens — Fale com o Administrador ─────────────────────── */
+.mensagens-card { display: flex; flex-direction: column; }
+
+.mensagens-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  min-height: 160px;
+  overflow-y: auto;
+  padding: 4px 4px 10px;
+  margin-bottom: 15px;
+}
+
+.mensagem-bolha {
+  max-width: 78%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.mensagem-bolha__texto { white-space: pre-wrap; word-break: break-word; }
+.mensagem-bolha__hora { display: block; margin-top: 4px; font-size: 10.5px; opacity: 0.7; }
+
+.mensagem-bolha--cliente {
+  align-self: flex-end;
+  background: var(--accent);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.mensagem-bolha--admin {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+}
+
+.mensagens-form {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.mensagens-form textarea {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  resize: none;
+  outline: none;
+}
+.mensagens-form textarea:focus { border-color: var(--accent); }
+.mensagens-form .btn { flex-shrink: 0; }
+
 .sidebar__risk-block,
 .sidebar__plan-block {
   margin: 6px 0;
@@ -798,6 +876,94 @@ input::placeholder {
 .bi-label  { display: block; color: var(--text-mid); font-size: 12px; margin-bottom: 7px; font-weight: 600; }
 .bi-value  { display: block; color: var(--accent); font-size: 18px; font-weight: 800; margin-bottom: 6px; }
 .bi-detail { display: block; color: var(--text-muted); font-size: 11px; }
+
+/* ── CTA "Definir Meta de Gastos" (aparece se não há metas) ──── */
+.meta-cta-card {
+  background: linear-gradient(135deg, rgba(100, 150, 255, 0.14), rgba(100, 200, 255, 0.08));
+  border: 1px solid rgba(100, 150, 255, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.meta-cta-card__texto h3 { margin-bottom: 6px; }
+.meta-cta-card__texto p { color: var(--text-mid); font-size: 13px; max-width: 420px; }
+.meta-cta-card .btn--primary { white-space: nowrap; flex-shrink: 0; }
+
+/* ── Maiores Gastos do Período — cartões com ícone ────────────── */
+.gasto-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.gasto-icon-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(100, 150, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  transition: var(--transition);
+}
+
+.gasto-icon-card:hover { border-color: rgba(100, 150, 255, 0.4); background: rgba(100, 150, 255, 0.09); }
+
+.gasto-icon-card__icone {
+  font-size: 26px;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(100, 150, 255, 0.12);
+  border-radius: var(--radius);
+}
+
+.gasto-icon-card__corpo { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.gasto-icon-card__nome { font-size: 13px; font-weight: 700; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gasto-icon-card__valor { font-size: 15px; font-weight: 800; color: var(--red); }
+.gasto-icon-card__percentual { font-size: 11px; color: var(--text-muted); }
+
+/* ── Observações automáticas (Dashboard do cliente) ───────────── */
+.insights-resumo {
+  font-size: 13px;
+  color: var(--text-primary);
+  background: rgba(100, 150, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 14px;
+  line-height: 1.6;
+}
+
+.insights-list { display: flex; flex-direction: column; gap: 10px; }
+
+.insight-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: rgba(100, 150, 255, 0.05);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+
+.insight-item__icone { flex-shrink: 0; font-size: 15px; margin-top: 1px; }
+.insight-item__texto { flex: 1; }
+
+.insight-item--alerta   { border-left-color: var(--red); }
+.insight-item--atencao  { border-left-color: #ffb443; }
+.insight-item--positivo { border-left-color: var(--green); }
+.insight-item--info     { border-left-color: var(--cyan); }
 
 /* ── Filters (genérico — admin/razonete) ────────────────────── */
 .filters {
@@ -1224,6 +1390,37 @@ input::placeholder {
 
 .meta-nome   { font-size: 15px; font-weight: 700; color: #fff; }
 .meta-client { font-size: 12px; color: var(--accent); font-weight: 600; }
+
+/* ── Ações (editar/excluir) no cartão de meta do cliente ──────── */
+.meta-card-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+.btn-meta-mini {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  cursor: pointer;
+}
+.btn-meta-mini.editar:hover  { border-color: var(--accent); }
+.btn-meta-mini.excluir:hover { border-color: var(--red); background: rgba(255, 100, 100, 0.1); }
+
+/* ── Dica/tutorial — Metas (explica o vínculo Investimento -> Meta) ── */
+.meta-dica-box {
+  background: rgba(100, 150, 255, 0.06);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 15px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+.meta-dica-box strong { color: var(--accent); }
 
 .meta-progress-bar {
   width: 100%;

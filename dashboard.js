@@ -46,6 +46,42 @@
 const DashboardModule = (() => {
     let cachedData = null;
 
+    // Ícone por categoria — comparação simples por palavra-chave no
+    // nome da categoria. Puramente decorativo (não afeta nenhum
+    // cálculo); usado só pelos cartões de "Maiores Gastos" abaixo.
+    const ICONES_CATEGORIA = [
+        [/mercado|supermercado|feira|a[çc]ougue|hortifruti|sacol[aã]o/i, '🛒'],
+        [/aluguel|condom[ií]nio|iptu|financiamento imobili[aá]rio|moradia/i, '🏠'],
+        [/luz|energia/i, '💡'],
+        [/[aá]gua|esgoto/i, '🚿'],
+        [/g[aá]s\b|botij[aã]o/i, '🔥'],
+        [/internet|wifi|banda larga|telefonia/i, '📶'],
+        [/combust[ií]vel|gasolina|posto|uber|99\b|[oô]nibus|metr[oô]|transporte/i, '🚗'],
+        [/oficina|mec[aâ]nico|pneu|revis[aã]o do carro|ipva|seguro (do carro|auto)/i, '🔧'],
+        [/farm[aá]cia|rem[eé]dio|medicamento|plano de sa[uú]de|m[eé]dico|dentista|consulta|exame|sa[uú]de/i, '💊'],
+        [/restaurante|delivery|ifood|rappi|lanche|bar\b|cafe|padaria/i, '🍔'],
+        [/streaming|netflix|spotify|assinatura/i, '🎬'],
+        [/viagem|hotel|passagem|airbnb/i, '✈️'],
+        [/academia|personal|crossfit|pilates/i, '💪'],
+        [/cinema|show|teatro|balada|festa/i, '🎉'],
+        [/roupa|sapato|t[eê]nis|cal[çc]ado|moda|bolsa/i, '👕'],
+        [/celular|smartphone|eletr[oô]nico|notebook|gadget|computador/i, '📱'],
+        [/sal[aã]o|beleza|manicure|pedicure|est[eé]tica|cabelo/i, '💅'],
+        [/escola|faculdade|curso|mensalidade|educa[çc][aã]o|livro/i, '📚'],
+        [/pet\b|veterin[aá]rio|ra[çc][aã]o/i, '🐾'],
+        [/investimento|aporte|reserva|previd[eê]ncia|poupan[çc]a/i, '💰'],
+        [/d[íi]vida|financiamento|empr[eé]stimo|fatura|cart[aã]o de cr[eé]dito/i, '💳'],
+        [/doa[çc][aã]o|d[íi]zimo|oferta|caridade|presente/i, '🎁'],
+    ];
+
+    function iconeParaCategoria(nome) {
+        const alvo = (nome || '').toLowerCase();
+        for (const [regex, icone] of ICONES_CATEGORIA) {
+            if (regex.test(alvo)) return icone;
+        }
+        return '🧩';
+    }
+
     const calculateMetrics = (transactions) => {
         const metrics = {
             custoDeSobrevivencia: 0,
@@ -150,6 +186,133 @@ const DashboardModule = (() => {
         });
     };
 
+    /**
+     * "🏆 Maiores Gastos do Período" — cartões com ícone por categoria.
+     * Reaproveita getCategoryBreakdown(), que já vem ordenado. Só
+     * renderiza se o HTML tiver o container (#dashTopGastosGrid) —
+     * senão não faz nada, sem lançar erro (permite que este módulo
+     * continue funcionando em qualquer página que não tenha esse bloco).
+     */
+    function renderMaioresGastos(categories, totalReceitas) {
+        const container = document.getElementById('dashTopGastosGrid');
+        if (!container) return;
+
+        const top5 = categories.slice(0, 5);
+
+        if (!top5.length) {
+            container.innerHTML = '<p class="empty-state">Nenhuma despesa registrada neste período ainda.</p>';
+            return;
+        }
+
+        container.innerHTML = top5.map(cat => {
+            const percentual = totalReceitas > 0 ? (cat.value / totalReceitas) * 100 : null;
+            return `
+                <div class="gasto-icon-card">
+                    <span class="gasto-icon-card__icone">${iconeParaCategoria(cat.name)}</span>
+                    <div class="gasto-icon-card__corpo">
+                        <span class="gasto-icon-card__nome">${cat.name}</span>
+                        <span class="gasto-icon-card__valor">${UIModule.formatCurrency(cat.value)}</span>
+                        ${percentual !== null ? `<span class="gasto-icon-card__percentual">${percentual.toFixed(1)}% da renda</span>` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    /**
+     * "💡 Observações sobre o seu período" — linguagem simples, sem
+     * jargão técnico, usando os rótulos que já aparecem na tela
+     * (Custo de Sobrevivência, Estilo de Vida, Investimentos, Dívidas).
+     * Só renderiza se o HTML tiver os containers correspondentes.
+     */
+    function gerarObservacoesCliente(m) {
+        const itens = [];
+        const totalTransacoes = (m.totalReceitas > 0 || m.totalDespesas > 0) ? 1 : 0; // presença de dados
+
+        if (!totalTransacoes) {
+            return { resumo: 'Ainda não há lançamentos neste período.', itens: [
+                { tipo: 'info', texto: 'Registe suas receitas e despesas para ver a sua análise financeira aqui.' }
+            ] };
+        }
+
+        if (m.saldoDisponivel < 0) {
+            itens.push({ tipo: 'alerta', texto: `Você gastou mais do que recebeu neste período (saldo de ${UIModule.formatCurrency(m.saldoDisponivel)}). Vale revisar os maiores gastos abaixo antes de qualquer outra decisão.` });
+        } else {
+            const taxaPoupanca = m.totalReceitas > 0 ? (m.saldoDisponivel / m.totalReceitas) * 100 : 0;
+            if (taxaPoupanca < 10) {
+                itens.push({ tipo: 'atencao', texto: `Sua taxa de poupança está em ${taxaPoupanca.toFixed(1)}%. Tentar guardar entre 10% e 20% da renda é uma boa meta para começar.` });
+            } else if (taxaPoupanca >= 20) {
+                itens.push({ tipo: 'positivo', texto: `Ótimo! Você guardou ${taxaPoupanca.toFixed(1)}% da sua renda neste período. Continue assim.` });
+            }
+        }
+
+        const percSobrevivencia = m.totalReceitas > 0 ? (m.custoDeSobrevivencia / m.totalReceitas) * 100 : 0;
+        if (percSobrevivencia > 50) {
+            itens.push({ tipo: 'atencao', texto: `O Custo de Sobrevivência está consumindo ${percSobrevivencia.toFixed(1)}% da sua renda — acima do recomendado (até 50%). Vale revisar contas fixas como moradia e alimentação.` });
+        }
+
+        const percEstilo = m.totalReceitas > 0 ? (m.custoDeVida / m.totalReceitas) * 100 : 0;
+        if (percEstilo > 30) {
+            itens.push({ tipo: 'atencao', texto: `O Estilo de Vida representa ${percEstilo.toFixed(1)}% da sua renda. Se quer sobrar mais dinheiro no fim do mês, este é o grupo com mais espaço para cortar.` });
+        }
+
+        if (m.aportesInvestimento <= 0) {
+            itens.push({ tipo: 'alerta', texto: 'Você ainda não guardou nada em Investimentos neste período. Mesmo um valor pequeno todo mês já faz diferença no longo prazo.' });
+        }
+
+        if (m.custoDivida > 0) {
+            const percDivida = m.totalReceitas > 0 ? (m.custoDivida / m.totalReceitas) * 100 : 0;
+            itens.push({
+                tipo: percDivida > 20 ? 'alerta' : 'atencao',
+                texto: `${percDivida.toFixed(1)}% da sua renda está comprometida com dívidas e financiamentos.` +
+                       (percDivida > 20 ? ' Priorizar a quitação pode liberar bastante espaço no seu orçamento.' : '')
+            });
+        }
+
+        const resumo = m.saldoDisponivel >= 0
+            ? `Neste período você recebeu ${UIModule.formatCurrency(m.totalReceitas)} e gastou ${UIModule.formatCurrency(m.totalDespesas)}, ficando com um saldo positivo de ${UIModule.formatCurrency(m.saldoDisponivel)}.`
+            : `Neste período você recebeu ${UIModule.formatCurrency(m.totalReceitas)} e gastou ${UIModule.formatCurrency(m.totalDespesas)}, resultando em um saldo negativo de ${UIModule.formatCurrency(Math.abs(m.saldoDisponivel))}.`;
+
+        return { resumo, itens };
+    }
+
+    function renderObservacoes(m) {
+        const container = document.getElementById('dashInsightsLista');
+        const resumoEl   = document.getElementById('dashInsightsResumo');
+        if (!container) return;
+
+        const { resumo, itens } = gerarObservacoesCliente(m);
+        if (resumoEl) resumoEl.textContent = resumo;
+
+        const ICONE = { alerta: '🔴', atencao: '🟡', positivo: '🟢', info: 'ℹ️' };
+
+        container.innerHTML = itens.length
+            ? itens.map(item => `
+                <div class="insight-item insight-item--${item.tipo}">
+                    <span class="insight-item__icone">${ICONE[item.tipo] || 'ℹ️'}</span>
+                    <span class="insight-item__texto">${item.texto}</span>
+                </div>
+            `).join('')
+            : '<p class="empty-state">Sem observações específicas para este período.</p>';
+    }
+
+    /**
+     * CTA "🎯 Definir Meta de Gastos" — só aparece se o cliente ainda
+     * não tem nenhuma meta cadastrada. Só age se o HTML tiver o bloco
+     * (#dashMetaCta).
+     */
+    async function renderCtaMeta(clientId) {
+        const bloco = document.getElementById('dashMetaCta');
+        if (!bloco) return;
+
+        try {
+            const metas = await DatabaseModule.getMetasByClient(clientId);
+            bloco.classList.toggle('hidden', !!(metas && metas.length));
+        } catch (_) {
+            bloco.classList.add('hidden');
+        }
+    }
+
     return {
         async load(clientId, filtro = {}) {
             try {
@@ -192,6 +355,17 @@ const DashboardModule = (() => {
                 UIModule.setText('biDebt', UIModule.formatCurrency(m.custoDivida));
                 UIModule.setText('biPassiveIncome', UIModule.formatCurrency(m.rendaPassiva));
                 UIModule.setText('biCoverage', `${m.cobertura.toFixed(1)}%`);
+
+                // ── Blocos novos, cada um isolado do resto: uma falha aqui
+                // nunca deve derrubar os KPIs que já renderizaram acima. ──
+                try { renderMaioresGastos(data.categories, m.totalReceitas); }
+                catch (e) { console.error('❌ renderMaioresGastos:', e); }
+
+                try { renderObservacoes(m); }
+                catch (e) { console.error('❌ renderObservacoes:', e); }
+
+                try { await renderCtaMeta(clientId); }
+                catch (e) { console.error('❌ renderCtaMeta:', e); }
 
                 return data;
             } catch (error) {

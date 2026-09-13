@@ -67,12 +67,17 @@ function toggleHistoricoCard() {
     if (icone) icone.textContent = estaEscondido ? '▸' : '▾';
 }
 
-function switchClientView(sectionId, event) {
-    event.preventDefault();
+/**
+ * Ativa uma secção do painel do cliente e executa os efeitos colaterais
+ * associados a ela (ex: carregar categorias ao abrir Transações).
+ * Compartilhada entre switchClientView() (clique real num item do
+ * menu, com `event`) e navegarParaSecaoCliente() (navegação
+ * programática, ex: botão "Definir Meta de Gastos" dentro do
+ * Dashboard — não existe nenhum `event` de clique de menu nesse caso).
+ */
+function ativarSecaoCliente(sectionId) {
     document.querySelectorAll('.view-section').forEach(s => s.classList.remove('active'));
     document.getElementById(sectionId)?.classList.add('active');
-    document.querySelectorAll('.sidebar__nav-item').forEach(b => b.classList.remove('active'));
-    event.currentTarget.classList.add('active');
 
     if (sectionId === 'cli-transactions') {
         garantirCategoriasCarregadas();
@@ -81,6 +86,31 @@ function switchClientView(sectionId, event) {
             initForm(false);
         }
     }
+
+    if (sectionId === 'cli-mensagens' && typeof MensagensModule !== 'undefined') {
+        MensagensModule.abrirConversa();
+    }
+}
+
+function switchClientView(sectionId, event) {
+    event.preventDefault();
+    document.querySelectorAll('.sidebar__nav-item').forEach(b => b.classList.remove('active'));
+    event.currentTarget.classList.add('active');
+    ativarSecaoCliente(sectionId);
+}
+
+/**
+ * Navega para uma secção do painel do cliente sem depender de um
+ * clique real no menu lateral (ex: CTA "Definir Meta de Gastos" no
+ * Dashboard). Sincroniza o item ativo do menu lateral pelo atributo
+ * onclick, para o destaque visual continuar correto.
+ */
+function navegarParaSecaoCliente(sectionId) {
+    document.querySelectorAll('.sidebar__nav-item').forEach(b => {
+        const alvo = b.getAttribute('onclick') || '';
+        b.classList.toggle('active', alvo.includes(`'${sectionId}'`));
+    });
+    ativarSecaoCliente(sectionId);
 }
 
 // ================================================
@@ -116,6 +146,10 @@ async function routeByRole(user, role) {
     await populateCategorySelect();
     UIModule.showScreen('clientScreen');
     await loadClientDashboard();
+
+    if (typeof MensagensModule !== 'undefined') {
+        MensagensModule.inicializar(user.id).catch(() => {});
+    }
 }
 
 async function garantirClienteExiste(user) {
@@ -347,6 +381,10 @@ async function handleOnboarding(event) {
         await populateCategorySelect();
         UIModule.showScreen('clientScreen');
         await loadClientDashboard();
+
+        if (typeof MensagensModule !== 'undefined') {
+            MensagensModule.inicializar(user.id).catch(() => {});
+        }
     } catch (error) {
         console.error('❌ Erro em handleOnboarding:', error);
         UIModule.showError(error.message || 'Erro ao salvar perfil');
@@ -375,29 +413,46 @@ async function handleLogout() {
 // ================================================
 
 async function loadClientDashboard() {
+    const clientId = ClientModule.getClientId();
+    const user     = AuthModule.getUser();
+
     try {
-        const clientId = ClientModule.getClientId();
-        const user     = AuthModule.getUser();
+        const { data: usuario } = await supabaseClient
+            .from(CONFIG.TABLES.USUARIOS).select('apelido').eq('id', user.id).maybeSingle();
+        UIModule.setText('clientNameDisplay', usuario?.apelido || user?.email?.split('@')[0] || 'Cliente');
+    } catch (_) {
+        UIModule.setText('clientNameDisplay', user?.email?.split('@')[0] || 'Cliente');
+    }
 
-        try {
-            const { data: usuario } = await supabaseClient
-                .from(CONFIG.TABLES.USUARIOS).select('apelido').eq('id', user.id).maybeSingle();
-            UIModule.setText('clientNameDisplay', usuario?.apelido || user?.email?.split('@')[0] || 'Cliente');
-        } catch (_) {
-            UIModule.setText('clientNameDisplay', user?.email?.split('@')[0] || 'Cliente');
-        }
+    // ─────────────────────────────────────────────────────────────
+    // Cada bloco abaixo tem o seu PRÓPRIO try/catch, isolado dos
+    // outros — uma falha num bloco (ex: dashboard) nunca impede os
+    // demais (metas/transações/planejamento) de carregar.
+    // ─────────────────────────────────────────────────────────────
 
+    try {
         await DashboardModule.renderClientDashboard(clientId, getFiltroDashboardAtual());
+    } catch (error) {
+        console.error('❌ loadClientDashboard (resumo/KPIs):', error);
+    }
 
+    try {
         const goals = await GoalsModule.loadClientGoals(clientId);
         GoalsModule.renderGoals('clientMetasList', goals);
-
-        await loadClientTransactions();
-        await loadClientPlanning();
-
     } catch (error) {
-        console.error('Erro dashboard cliente:', error);
-        UIModule.showError('Erro ao carregar dashboard');
+        console.error('❌ loadClientDashboard (metas):', error);
+    }
+
+    try {
+        await loadClientTransactions();
+    } catch (error) {
+        console.error('❌ loadClientDashboard (transações):', error);
+    }
+
+    try {
+        await loadClientPlanning();
+    } catch (error) {
+        console.error('❌ loadClientDashboard (planejamento):', error);
     }
 }
 

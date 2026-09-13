@@ -60,7 +60,15 @@ async function renderClientes() {
     return;
   }
 
-  grid.innerHTML = allClientes.map(c => `
+  // Contagem de mensagens não lidas por cliente — uma ÚNICA consulta
+  // pra todos, em vez de uma por card (ver mensagens-admin.js).
+  const mensagensNaoLidas = typeof contarMensagensNaoLidasPorCliente === 'function'
+    ? await contarMensagensNaoLidasPorCliente(allClientes.map(c => c.id))
+    : {};
+
+  grid.innerHTML = allClientes.map(c => {
+    const naoLidas = mensagensNaoLidas[c.id] || 0;
+    return `
     <div class="card">
       <div>
         <p class="card-name">${c.nome}</p>
@@ -72,12 +80,17 @@ async function renderClientes() {
       </div>
       <div class="card-actions">
         <button class="btn-card lancamentos" data-id="${c.id}">📥 Lançamentos</button>
+        <button class="btn-card mensagens" data-id="${c.id}" data-nome="${c.nome}">
+          💬 Mensagens
+          <span class="mensagens-nao-lidas ${naoLidas ? '' : 'hidden'}" data-client-id="${c.id}">${naoLidas}</span>
+        </button>
       </div>
       <div class="card-actions">
         <button class="btn-card deletar" data-id="${c.id}" data-nome="${c.nome}">🗑️ Deletar</button>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   grid.querySelectorAll('.btn-card.editar').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -99,6 +112,17 @@ async function renderClientes() {
       } else {
         showToast('Módulo de lançamentos não carregou — recarregue a página.', 'error');
         console.warn('⚠️ abrirModalLancamentosAdmin não está definida (lancamentos-admin.js carregado?).');
+      }
+    });
+  });
+
+  grid.querySelectorAll('.btn-card.mensagens').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (typeof abrirModalMensagensCliente === 'function') {
+        abrirModalMensagensCliente(btn.dataset.id, btn.dataset.nome);
+      } else {
+        showToast('Módulo de mensagens não carregou — recarregue a página.', 'error');
+        console.warn('⚠️ abrirModalMensagensCliente não está definida (mensagens-admin.js carregado?).');
       }
     });
   });
