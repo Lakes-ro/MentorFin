@@ -170,7 +170,7 @@ async function abrirModalLancamentosAdmin(clienteIdPreSelecionado) {
             allClientes
                 .slice()
                 .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-                .map(c => `<option value="${c.id}" ${c.id === clienteIdPreSelecionado ? 'selected' : ''}>${c.nome}</option>`)
+                .map(c => `<option value="${c.id}" ${c.id === clienteIdPreSelecionado ? 'selected' : ''}>${escaparHtml(c.nome)}</option>`)
                 .join('');
     }
 
@@ -266,7 +266,7 @@ function popularSelectCategoriaManual(categorias) {
         porGrupo[chave]
             .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
             .forEach(c => {
-                html += `<option value="${c.id}" data-tipo="${c.tipo}">${label} — ${c.nome}</option>`;
+                html += `<option value="${c.id}" data-tipo="${c.tipo}">${label} — ${escaparHtml(c.nome)}</option>`;
             });
     });
 
@@ -293,8 +293,8 @@ function sugerirCategoriaLancamentoManual() {
     if (select) select.value = match.id;
 
     const aviso = match._confiancaAlta === false
-        ? `🔎 Sugestão por semelhança: ${match.nome} — confira antes de salvar`
-        : `🤖 Categoria sugerida: ${match.nome}`;
+        ? `🔎 Sugestão por semelhança: ${escaparHtml(match.nome)} — confira antes de salvar`
+        : `🤖 Categoria sugerida: ${escaparHtml(match.nome)}`;
     showToast(aviso, match._confiancaAlta === false ? 'error' : 'success');
 }
 
@@ -383,7 +383,7 @@ async function carregarUltimosLancamentosDoCliente(clienteId) {
     container.innerHTML = data.map(t => `
         <div class="razonete-item ${t.tipo}">
             <div class="razonete-item-info">
-                <span class="razonete-descricao">${t.categorias?.nome || 'Sem categoria'}${t.descricao ? ' · ' + t.descricao : ''}</span>
+                <span class="razonete-descricao">${escaparHtml(t.categorias?.nome) || 'Sem categoria'}${t.descricao ? ' · ' + escaparHtml(t.descricao) : ''}</span>
                 <span class="razonete-data">${formatDate(t.data_competencia)}</span>
             </div>
             <span class="razonete-valor ${t.tipo === 'receita' ? 'positivo' : 'negativo'}">

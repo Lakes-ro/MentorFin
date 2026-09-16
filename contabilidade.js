@@ -151,7 +151,7 @@ function renderDRE(container, dre, meta) {
 
     const linhasReceitaHtml = dre.linhasReceita.map(l => `
         <tr class="dre-linha">
-            <td class="dre-linha__nome">${l.nome}</td>
+            <td class="dre-linha__nome">${escaparHtml(l.nome)}</td>
             <td>${_fmtMoeda(l.valor)}</td>
         </tr>
     `).join('') || '<tr class="dre-linha"><td colspan="2" class="dre-vazio">Nenhuma receita no período</td></tr>';
@@ -160,7 +160,7 @@ function renderDRE(container, dre, meta) {
         <tr class="dre-subtitulo"><td colspan="2">(-) ${bloco.label}</td></tr>
         ${bloco.linhas.map(l => `
             <tr class="dre-linha dre-linha--despesa">
-                <td class="dre-linha__nome">${l.nome}</td>
+                <td class="dre-linha__nome">${escaparHtml(l.nome)}</td>
                 <td>${_fmtMoeda(l.valor)}</td>
             </tr>
         `).join('') || '<tr class="dre-linha"><td colspan="2" class="dre-vazio">Sem lançamentos</td></tr>'}
@@ -174,7 +174,7 @@ function renderDRE(container, dre, meta) {
 
     container.innerHTML = `
         <div class="dre-header">
-            <h4>Demonstração do Resultado — ${meta.clienteNome}</h4>
+            <h4>Demonstração do Resultado — ${escaparHtml(meta.clienteNome)}</h4>
             <p class="dre-periodo">${meta.periodoLabel}</p>
         </div>
         <table class="dre-table">
@@ -271,7 +271,7 @@ function renderBalancete(container, balancete, meta) {
     const linhasHtml = balancete.linhas.map(l => `
         <tr>
             <td class="balancete-codigo">${l.codigoConta}</td>
-            <td>${l.nome}</td>
+            <td>${escaparHtml(l.nome)}</td>
             <td class="balancete-grupo">${l.labelGrupo}</td>
             <td class="balancete-valor">${l.debito > 0 ? _fmtMoeda(l.debito) : '—'}</td>
             <td class="balancete-valor">${l.credito > 0 ? _fmtMoeda(l.credito) : '—'}</td>
@@ -281,7 +281,7 @@ function renderBalancete(container, balancete, meta) {
 
     container.innerHTML = `
         <div class="dre-header">
-            <h4>Balancete de Verificação — ${meta.clienteNome}</h4>
+            <h4>Balancete de Verificação — ${escaparHtml(meta.clienteNome)}</h4>
             <p class="dre-periodo">${meta.periodoLabel}</p>
         </div>
         <table class="balancete-table">
@@ -381,7 +381,14 @@ function abrirBalanceteAmpliado() {
 
     const balancete = calcularBalancete(contexto.transacoes);
     const tabelaContainer = document.getElementById('balancete-ampliado-tabela');
-    renderBalancete(tabelaContainer, balancete, { clienteNome: contexto.clienteNome, periodoLabel: 'Todos os lançamentos' });
+    // `contexto.transacoes` já vem recortado pelo filtro de período do
+    // modal (ver aplicarPeriodoDashboard em dashboards.js) — o ampliado
+    // mostra exatamente o mesmo recorte da aba Balancete, senão o admin
+    // anotaria em cima de números diferentes dos que estava vendo.
+    renderBalancete(tabelaContainer, balancete, {
+        clienteNome: contexto.clienteNome,
+        periodoLabel: contexto.periodoLabel || 'Todos os lançamentos'
+    });
 
     openModal('modal-balancete-ampliado');
 

@@ -75,7 +75,7 @@ async function popularFiltroClientes() {
 
   select.innerHTML = '<option value="">Todos</option>' +
     allClientes.map(c =>
-      `<option value="${c.id}" ${valorAtual === c.id ? 'selected' : ''}>${c.nome}</option>`
+      `<option value="${c.id}" ${valorAtual === c.id ? 'selected' : ''}>${escaparHtml(c.nome)}</option>`
     ).join('');
 }
 

@@ -24,13 +24,23 @@ let chartBar   = null;
 // Contexto do dashboard atualmente aberto no modal — alimenta as abas
 // DRE/Balancete, os botões "Exportar PDF" e o Balancete Ampliado
 // (ver contabilidade.js) sem precisar reconsultar o banco.
-let dashboardContextoAtual = { transacoes: [], clienteNome: '' };
+// `transacoesTodas` = tudo que veio do banco; `transacoes` = só o que
+// está dentro do período escolhido na barra de filtro. Todo o resto do
+// sistema (Resumo, DRE, Balancete, Balancete Ampliado, exportar PDF)
+// lê `transacoes`, portanto todos respeitam o período automaticamente.
+let dashboardContextoAtual = {
+  transacoes: [], transacoesTodas: [], clienteNome: '',
+  periodoLabel: 'Todos os lançamentos'
+};
+
+let dashboardPeriodoAtual = { preset: 'todos', inicio: null, fim: null };
 
 function initDashboards() {
   window.addEventListener('section:change', ({ detail }) => {
     if (detail.section === 'dashboards') renderDashboards();
   });
   initModalDashboardTabs();
+  initFiltroPeriodoDashboard();
   renderDashboards();
 }
 
@@ -51,23 +61,36 @@ async function renderDashboards() {
 
   grid.innerHTML = allClientes.map(c => {
     const risco = riscos[c.id] || classificarRisco([]);
+    // O badge de risco saiu de dentro da linha do nome e passou a ter
+    // uma FAIXA PRÓPRIA, sempre no mesmo lugar em todos os cards. Antes
+    // ele dividia a linha com o nome: nome curto → badge à direita na
+    // 1ª linha; nome longo → badge empurrado para baixo. Resultado: em
+    // cada card o selo aparecia numa altura diferente.
     return `
-    <div class="card">
-      <div class="card-header-row">
-        <div>
-          <p class="card-name">${c.nome}</p>
-          <p class="card-sub">${c.email || 'Sem email'}</p>
+    <div class="card card--uniforme">
+      <div class="card-identidade">
+        <div class="card-identidade__texto">
+          <p class="card-name dado-sensivel">${escaparHtml(c.nome)}</p>
+          <p class="card-sub dado-sensivel">${escaparHtml(c.email) || 'Sem email'}</p>
         </div>
+        <button type="button" class="btn-olho" data-olho-card
+          title="Mostrar/ocultar nome e email deste cliente"
+          aria-label="Mostrar ou ocultar dados deste cliente">👁️</button>
+      </div>
+      <div class="card-faixa-badge">
         <span class="risk-badge ${risco.classe}" title="Classificação de risco financeiro">${risco.emoji} ${risco.label}</span>
       </div>
-      <div class="card-actions" style="margin-top:auto;">
-        <button class="btn-card ver-dashboard" data-id="${c.id}" data-nome="${c.nome}">
+      <div class="card-espacador"></div>
+      <div class="card-actions card-actions--full">
+        <button class="btn-card ver-dashboard" data-id="${c.id}" data-nome="${escaparHtml(c.nome)}">
           📊 Ver Dashboard
         </button>
       </div>
     </div>
   `;
   }).join('');
+
+  if (typeof aplicarPrivacidadeNaGrade === 'function') aplicarPrivacidadeNaGrade(grid);
 
   grid.querySelectorAll('.btn-card.ver-dashboard').forEach(btn => {
     btn.addEventListener('click', () => abrirDashboard(btn.dataset.id, btn.dataset.nome));
@@ -164,10 +187,138 @@ async function abrirDashboard(clienteId, nome) {
 
   if (error) { showToast('Erro ao carregar dados: ' + error.message, 'error'); return; }
 
-  dashboardContextoAtual = { transacoes: transacoes || [], clienteNome: nome };
+  dashboardContextoAtual = {
+    transacoes:      transacoes || [],
+    transacoesTodas: transacoes || [],
+    clienteNome:     nome,
+    periodoLabel:    'Todos os lançamentos'
+  };
 
-  calcularEExibir(transacoes || []);
-  renderizarDREEBalanceteNoModal(transacoes || [], nome);
+  // Ao trocar de cliente o filtro volta para "Todos os lançamentos" —
+  // manter o período do cliente anterior seria a forma mais fácil de
+  // olhar um número vazio e achar que o cliente não tem lançamento.
+  resetarFiltroPeriodoDashboard();
+  aplicarPeriodoDashboard();
+}
+
+// ══════════════════════════════════════════════════════════════
+// FILTRO DE PERÍODO (Resumo + DRE + Balancete, de uma vez só)
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * Converte o preset escolhido em um intervalo [inicio, fim] de datas
+ * (strings AAAA-MM-DD, comparáveis direto com data_competencia, que já
+ * vem nesse formato do banco — sem converter para Date, o que evitaria
+ * o clássico erro de fuso horário deslocando o dia 01 para o dia 31 do
+ * mês anterior).
+ */
+function calcularIntervaloPeriodoDashboard(periodo) {
+  const hoje = new Date();
+  const ano  = hoje.getFullYear();
+  const mes  = hoje.getMonth();
+  const iso  = (a, m, d) => `${a}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  const ultimoDia = (a, m) => new Date(a, m + 1, 0).getDate();
+  const nomeMes = (a, m) => new Date(a, m, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+  switch (periodo.preset) {
+    case 'mes-atual':
+      return { inicio: iso(ano, mes, 1), fim: iso(ano, mes, ultimoDia(ano, mes)), label: nomeMes(ano, mes) };
+
+    case 'mes-anterior': {
+      const d = new Date(ano, mes - 1, 1);
+      const a = d.getFullYear(), m = d.getMonth();
+      return { inicio: iso(a, m, 1), fim: iso(a, m, ultimoDia(a, m)), label: nomeMes(a, m) };
+    }
+
+    case '3m': case '6m': case '12m': {
+      const qtd = parseInt(periodo.preset, 10);
+      const d = new Date(ano, mes - (qtd - 1), 1);
+      return {
+        inicio: iso(d.getFullYear(), d.getMonth(), 1),
+        fim:    iso(ano, mes, ultimoDia(ano, mes)),
+        label:  `Últimos ${qtd} meses (${nomeMes(d.getFullYear(), d.getMonth())} a ${nomeMes(ano, mes)})`
+      };
+    }
+
+    case 'ano-atual':
+      return { inicio: `${ano}-01-01`, fim: `${ano}-12-31`, label: `Ano de ${ano}` };
+
+    case 'personalizado': {
+      const inicio = periodo.inicio || null;
+      const fim    = periodo.fim    || null;
+      if (!inicio && !fim) return { inicio: null, fim: null, label: 'Todos os lançamentos' };
+      const fmt = s => s ? s.split('-').reverse().join('/') : '…';
+      return { inicio, fim, label: `De ${fmt(inicio)} até ${fmt(fim)}` };
+    }
+
+    default:
+      return { inicio: null, fim: null, label: 'Todos os lançamentos' };
+  }
+}
+
+function filtrarTransacoesPorPeriodoDashboard(transacoes, intervalo) {
+  if (!intervalo.inicio && !intervalo.fim) return transacoes;
+  return transacoes.filter(t => {
+    const d = (t.data_competencia || '').slice(0, 10);
+    if (!d) return false;
+    if (intervalo.inicio && d < intervalo.inicio) return false;
+    if (intervalo.fim    && d > intervalo.fim)    return false;
+    return true;
+  });
+}
+
+/**
+ * Recalcula TUDO (KPIs, gráficos, análise, observações, DRE e
+ * Balancete) em cima do recorte de período atual. É o único ponto que
+ * escreve em `dashboardContextoAtual.transacoes`.
+ */
+function aplicarPeriodoDashboard() {
+  const intervalo  = calcularIntervaloPeriodoDashboard(dashboardPeriodoAtual);
+  const filtradas  = filtrarTransacoesPorPeriodoDashboard(dashboardContextoAtual.transacoesTodas, intervalo);
+
+  dashboardContextoAtual.transacoes   = filtradas;
+  dashboardContextoAtual.periodoLabel = intervalo.label;
+
+  const info = document.getElementById('dashboard-periodo-info');
+  if (info) {
+    const total = dashboardContextoAtual.transacoesTodas.length;
+    info.textContent = `${filtradas.length} de ${total} lançamento(s) · ${intervalo.label}`;
+  }
+
+  calcularEExibir(filtradas);
+  renderizarDREEBalanceteNoModal(filtradas, dashboardContextoAtual.clienteNome, intervalo.label);
+}
+
+function resetarFiltroPeriodoDashboard() {
+  dashboardPeriodoAtual = { preset: 'todos', inicio: null, fim: null };
+  const sel = document.getElementById('dashboard-periodo');
+  if (sel) sel.value = 'todos';
+  document.getElementById('dashboard-periodo-custom')?.classList.add('hidden');
+  const ini = document.getElementById('dashboard-periodo-inicio');
+  const fim = document.getElementById('dashboard-periodo-fim');
+  if (ini) ini.value = '';
+  if (fim) fim.value = '';
+}
+
+function initFiltroPeriodoDashboard() {
+  const sel = document.getElementById('dashboard-periodo');
+  const box = document.getElementById('dashboard-periodo-custom');
+  const ini = document.getElementById('dashboard-periodo-inicio');
+  const fim = document.getElementById('dashboard-periodo-fim');
+
+  sel?.addEventListener('change', () => {
+    dashboardPeriodoAtual.preset = sel.value;
+    box?.classList.toggle('hidden', sel.value !== 'personalizado');
+    aplicarPeriodoDashboard();
+  });
+
+  [ini, fim].forEach(campo => {
+    campo?.addEventListener('change', () => {
+      dashboardPeriodoAtual.inicio = ini?.value || null;
+      dashboardPeriodoAtual.fim    = fim?.value || null;
+      aplicarPeriodoDashboard();
+    });
+  });
 }
 
 function calcularEExibir(transacoes) {
@@ -231,6 +382,12 @@ function calcularEExibir(transacoes) {
 function renderDonut(essencial, estiloVida, investimento) {
   const ctx = document.getElementById('chart-donut');
   if (!ctx) return;
+  // ⚠️ "Canvas is already in use": trocar o período redesenha os
+  // gráficos, e o Chart.js recusa reutilizar um <canvas> que ainda tem
+  // instância viva. A destruição tem de acontecer AQUI (e não só ao
+  // abrir o modal), porque agora o redesenho acontece várias vezes com
+  // o mesmo modal aberto.
+  if (chartDonut) { chartDonut.destroy(); chartDonut = null; }
   chartDonut = new Chart(ctx, {
     type: 'doughnut',
     data: {
@@ -251,6 +408,7 @@ function renderDonut(essencial, estiloVida, investimento) {
 function renderBarChart(topCats) {
   const ctx = document.getElementById('chart-bar');
   if (!ctx) return;
+  if (chartBar) { chartBar.destroy(); chartBar = null; }
   chartBar = new Chart(ctx, {
     type: 'bar',
     data: {
@@ -402,8 +560,7 @@ function renderInsightsDashboard(m) {
  * nenhuma consulta extra ao banco. As funções calcularDRE/renderDRE/
  * calcularBalancete/renderBalancete vêm de contabilidade.js.
  */
-function renderizarDREEBalanceteNoModal(transacoes, nomeCliente) {
-  const periodoLabel = 'Todos os lançamentos';
+function renderizarDREEBalanceteNoModal(transacoes, nomeCliente, periodoLabel = 'Todos os lançamentos') {
 
   if (typeof calcularDRE === 'function' && typeof renderDRE === 'function') {
     const dre = calcularDRE(transacoes);
@@ -438,11 +595,11 @@ function initModalDashboardTabs() {
   });
 
   document.getElementById('btn-exportar-dre')?.addEventListener('click', () => {
-    exportarParaPDF('dre-container', `DRE — ${dashboardContextoAtual.clienteNome}`);
+    exportarParaPDF('dre-container', `DRE — ${dashboardContextoAtual.clienteNome} — ${dashboardContextoAtual.periodoLabel}`);
   });
 
   document.getElementById('btn-exportar-balancete')?.addEventListener('click', () => {
-    exportarParaPDF('balancete-container', `Balancete de Verificação — ${dashboardContextoAtual.clienteNome}`);
+    exportarParaPDF('balancete-container', `Balancete de Verificação — ${dashboardContextoAtual.clienteNome} — ${dashboardContextoAtual.periodoLabel}`);
   });
 
   document.getElementById('btn-ampliar-balancete')?.addEventListener('click', () => {
@@ -450,4 +607,4 @@ function initModalDashboardTabs() {
   });
 }
 
-console.log('✅ dashboards.js carregado (Resumo + Insights + DRE + Balancete + fix KPI dívidas)');
+console.log('✅ dashboards.js carregado (Resumo + Insights + DRE + Balancete + filtro de período + privacidade)');

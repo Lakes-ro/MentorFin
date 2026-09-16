@@ -30,7 +30,11 @@
                 </div>
                 <div class="form-group">
                     <label>Senha</label>
-                    <input type="password" id="loginPassword" placeholder="Digite sua senha" required>
+                    <div class="input-senha">
+                        <input type="password" id="loginPassword" placeholder="Digite sua senha" required>
+                        <button type="button" class="btn-ver-senha" data-alvo="loginPassword"
+                            aria-label="Mostrar senha" title="Mostrar senha">👁️</button>
+                    </div>
                 </div>
                 <button type="submit" class="btn btn--primary">Entrar</button>
             </form>
@@ -64,11 +68,19 @@
                 </div>
                 <div class="form-group">
                     <label>Senha</label>
-                    <input type="password" id="registerPassword" placeholder="Mínimo 6 caracteres" required>
+                    <div class="input-senha">
+                        <input type="password" id="registerPassword" placeholder="Mínimo 6 caracteres" required>
+                        <button type="button" class="btn-ver-senha" data-alvo="registerPassword"
+                            aria-label="Mostrar senha" title="Mostrar senha">👁️</button>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label>Confirmar Senha</label>
-                    <input type="password" id="registerPasswordConfirm" placeholder="Repita a senha" required>
+                    <div class="input-senha">
+                        <input type="password" id="registerPasswordConfirm" placeholder="Repita a senha" required>
+                        <button type="button" class="btn-ver-senha" data-alvo="registerPasswordConfirm"
+                            aria-label="Mostrar senha" title="Mostrar senha">👁️</button>
+                    </div>
                 </div>
                 <button type="submit" class="btn btn--primary">Criar Conta</button>
                 <div id="registerError" class="login-error hidden" style="margin-top:12px;"></div>
@@ -238,14 +250,6 @@
                         <p class="empty-state">Carregando...</p>
                     </div>
                 </div>
-
-                <!-- Observações automáticas — linguagem simples, sem
-                     jargão técnico. Ver DashboardModule (dashboard.js). -->
-                <div class="card">
-                    <h3>💡 Observações sobre o seu período</h3>
-                    <p class="insights-resumo" id="dashInsightsResumo"></p>
-                    <div id="dashInsightsLista" class="insights-list"></div>
-                </div>
             </section>
 
             <!-- TRANSAÇÕES CLIENTE -->
@@ -307,6 +311,13 @@
                     <div id="importResumoStatus" class="import-status hidden"></div>
 
                     <div id="importReviewContainer" class="import-review hidden">
+
+                        <!-- Aviso de impedimento dentro do próprio modal
+                             (o toast ficava atrás do pop-up). Ver
+                             destacarImpedimentoImportacao() em
+                             importacao-extrato.js. -->
+                        <div id="importAvisoImpedimento" class="import-aviso hidden" role="alert"></div>
+
                         <div class="import-review__header">
                             <h4>Revise antes de importar</h4>
                             <label class="import-review__select-all">
@@ -621,7 +632,9 @@
      SCRIPTS — ORDEM CRÍTICA
 ============================================================ -->
 <script src="config.js"></script>
+<script src="seguranca.js"></script>
 <script src="ui.js"></script>
+<script src="ver-senha.js"></script>
 <script src="auth.js"></script>
 <script src="database.js"></script>
 <script src="dashboard.js"></script>

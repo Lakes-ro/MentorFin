@@ -103,6 +103,9 @@ function initCategorias() {
   document.getElementById('categoria-tipo')
     ?.addEventListener('change', atualizarOpcoesDeGrupo);
 
+  document.getElementById('categoria-alcance')
+    ?.addEventListener('change', atualizarVisibilidadeCampoCliente);
+
   document.getElementById('categoria-busca')
     ?.addEventListener('input', (e) => renderCategoriasFiltradas(e.target.value));
 
@@ -178,18 +181,18 @@ function renderPendentesRevisao() {
       <div class="card card--pendente" data-cat-id="${c.id}">
         <div class="card-header-row">
           <div>
-            <p class="card-name">${c.nome}</p>
-            <p class="card-sub">Criada por ${cliente?.nome || 'cliente desconhecido'}</p>
+            <p class="card-name">${escaparHtml(c.nome)}</p>
+            <p class="card-sub">Criada por ${escaparHtml(cliente?.nome) || 'cliente desconhecido'}</p>
             <p class="card-sub">Sugestão atual: ${sugestaoLabel}</p>
           </div>
           <span class="risk-badge ${isReceita ? 'verde' : 'cinza'}">${isReceita ? 'Receita' : 'Despesa'}</span>
         </div>
         <div class="card-actions">
           <button class="btn-card editar btn-ajustar-pendente" data-id="${c.id}">✏️ Ajustar</button>
-          <button class="btn-card confirmar btn-confirmar-pendente" data-id="${c.id}" data-nome="${c.nome}">✓ Confirmar</button>
+          <button class="btn-card confirmar btn-confirmar-pendente" data-id="${c.id}" data-nome="${escaparHtml(c.nome)}">✓ Confirmar</button>
         </div>
         <div class="card-actions">
-          <button class="btn-card mesclar btn-mesclar" data-id="${c.id}" data-nome="${c.nome}">🔀 Mesclar em outra categoria</button>
+          <button class="btn-card mesclar btn-mesclar" data-id="${c.id}" data-nome="${escaparHtml(c.nome)}">🔀 Mesclar em outra categoria</button>
         </div>
       </div>
     `;
@@ -363,25 +366,27 @@ function renderCardCategoria(c, codigoGrupoFallback, indiceFallback) {
     <div class="card">
       <div class="card-header-row">
         <div>
-          <p class="card-name">${codigoConta ? `<span class="conta-codigo">${codigoConta}</span>` : ''}${c.nome}</p>
-          <p class="card-sub">${cliente ? `pessoal de ${cliente.nome}` : 'Categoria global'}</p>
+          <p class="card-name">${codigoConta ? `<span class="conta-codigo">${escaparHtml(codigoConta)}</span>` : ''}${escaparHtml(c.nome)}</p>
+          <p class="card-sub">${cliente ? `pessoal de ${escaparHtml(cliente.nome)}` : 'Categoria global'}</p>
           ${qtdSinonimos > 0 ? `<p class="card-sub">🔑 ${qtdSinonimos} sinônimo${qtdSinonimos > 1 ? 's' : ''} cadastrado${qtdSinonimos > 1 ? 's' : ''}</p>` : ''}
         </div>
         <span class="risk-badge ${isReceita ? 'verde' : 'cinza'}">${isReceita ? 'Receita' : 'Despesa'}</span>
       </div>
       <div class="card-actions">
         <button class="btn-card editar" data-id="${c.id}">✏️ Editar</button>
-        <button class="btn-card deletar" data-id="${c.id}" data-nome="${c.nome}">🗑️ Deletar</button>
+        <button class="btn-card deletar" data-id="${c.id}" data-nome="${escaparHtml(c.nome)}">🗑️ Deletar</button>
       </div>
       <div class="card-actions">
-        <button class="btn-card mesclar" data-id="${c.id}" data-nome="${c.nome}">🔀 Mesclar</button>
+        <button class="btn-card mesclar" data-id="${c.id}" data-nome="${escaparHtml(c.nome)}">🔀 Mesclar</button>
       </div>
     </div>
   `;
 }
 
-function abrirModalCategoria(item) {
+async function abrirModalCategoria(item) {
   categoriaEmEdicao = item;
+
+  if (!allClientes.length) await loadAllClientes();
 
   document.getElementById('modal-categoria-title').textContent =
     item ? '✏️ Editar Categoria' : '🏷️ Adicionar Categoria';
@@ -400,8 +405,39 @@ function abrirModalCategoria(item) {
     campoCodigo.value = item?.codigo_contabil || '';
   }
 
+  // Alcance: Global (cliente_id nulo) ou Específica de um cliente —
+  // ver MIGRACAO nenhuma necessária, coluna já existia (categorias.cliente_id).
+  const campoAlcance = document.getElementById('categoria-alcance');
+  if (campoAlcance) {
+    campoAlcance.value = item?.cliente_id ? 'pessoal' : 'global';
+  }
+  popularSelectClienteCategoria(item?.cliente_id || '');
+  atualizarVisibilidadeCampoCliente();
+
   atualizarOpcoesDeGrupo(item?.grupo);
   openModal('modal-categoria');
+}
+
+/**
+ * Mostra/esconde o seletor de cliente conforme o Alcance escolhido —
+ * "Global" não precisa de cliente nenhum; "Específica de um cliente"
+ * exige escolher qual (validado em salvarCategoria()).
+ */
+function atualizarVisibilidadeCampoCliente() {
+  const alcance = document.getElementById('categoria-alcance')?.value;
+  const wrapper = document.getElementById('categoria-cliente-wrapper');
+  wrapper?.classList.toggle('hidden', alcance !== 'pessoal');
+}
+
+function popularSelectClienteCategoria(clienteIdSelecionado) {
+  const select = document.getElementById('categoria-cliente-select');
+  if (!select) return;
+
+  select.innerHTML = allClientes
+    .slice()
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map(c => `<option value="${c.id}" ${c.id === clienteIdSelecionado ? 'selected' : ''}>${escaparHtml(c.nome)}</option>`)
+    .join('') || '<option value="">Nenhum cliente cadastrado</option>';
 }
 
 function atualizarOpcoesDeGrupo(grupoSelecionado) {
@@ -421,6 +457,9 @@ async function salvarCategoria() {
   const grupo = document.getElementById('categoria-grupo').value;
   const codigoContabil = document.getElementById('categoria-codigo-contabil')?.value.trim() || null;
 
+  const alcance          = document.getElementById('categoria-alcance')?.value || 'global';
+  const clienteIdEscolhido = document.getElementById('categoria-cliente-select')?.value || '';
+
   const palavrasChaveTexto = document.getElementById('categoria-palavras-chave')?.value.trim() || '';
   const palavrasChave = palavrasChaveTexto
     ? [...new Set(palavrasChaveTexto.split(',').map(p => p.trim()).filter(Boolean))]
@@ -428,8 +467,17 @@ async function salvarCategoria() {
 
   if (!nome)  { showToast('Informe o nome da categoria.', 'error'); return; }
   if (!grupo) { showToast('Selecione um grupo.', 'error'); return; }
+  if (alcance === 'pessoal' && !clienteIdEscolhido) {
+    showToast('Selecione o cliente desta categoria específica.', 'error');
+    return;
+  }
 
-  const payload = { nome, tipo, grupo, revisado: true, palavras_chave: palavrasChave, codigo_contabil: codigoContabil };
+  const payload = {
+    nome, tipo, grupo, revisado: true,
+    palavras_chave: palavrasChave,
+    codigo_contabil: codigoContabil,
+    cliente_id: alcance === 'pessoal' ? clienteIdEscolhido : null
+  };
 
   const btn = document.getElementById('btn-salvar-categoria');
   if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
@@ -494,7 +542,7 @@ function abrirModalMesclarCategoria(origemId, origemNome) {
   } else {
     select.innerHTML = candidatas
       .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-      .map(c => `<option value="${c.id}">${c.codigo_contabil ? `[${c.codigo_contabil}] ` : ''}${c.nome}</option>`)
+      .map(c => `<option value="${c.id}">${c.codigo_contabil ? `[${escaparHtml(c.codigo_contabil)}] ` : ''}${escaparHtml(c.nome)}</option>`)
       .join('');
   }
 
@@ -519,6 +567,26 @@ async function confirmarMesclagemCategoria() {
   if (btn) { btn.disabled = true; btn.textContent = 'Mesclando...'; }
 
   try {
+    // ⚠️ CORREÇÃO — SINÔNIMOS SE PERDIAM NA MESCLAGEM: antes, só as
+    // transações e regras_aprendidas eram movidas pra categoria de
+    // destino — os `palavras_chave` (sinônimos) da categoria de
+    // ORIGEM eram simplesmente perdidos quando ela era deletada.
+    // Também é essencial incluir o NOME da categoria de origem como
+    // sinônimo do destino: sem isso, depois da mesclagem, qualquer
+    // descrição futura que batesse com o nome da categoria apagada
+    // (ex: "Unha", mesclada em "Salão de Beleza") deixaria de ser
+    // reconhecida por completo, porque a categoria "Unha" não existe
+    // mais pra bater consigo mesma.
+    const palavrasOrigem    = Array.isArray(origemCat?.palavras_chave)  ? origemCat.palavras_chave  : [];
+    const palavrasDestino   = Array.isArray(destinoCat?.palavras_chave) ? destinoCat.palavras_chave : [];
+    const palavrasMescladas = [...new Set([...palavrasDestino, ...palavrasOrigem, origemCat?.nome].filter(Boolean))];
+
+    const { error: errPalavras } = await supabaseClient
+      .from('categorias')
+      .update({ palavras_chave: palavrasMescladas })
+      .eq('id', destinoId);
+    if (errPalavras) throw errPalavras;
+
     const { error: errTransacoes } = await supabaseClient
       .from('transacoes')
       .update({ categoria_id: destinoId })

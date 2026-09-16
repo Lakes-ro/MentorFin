@@ -52,7 +52,7 @@ function popularFiltroClientesMetas() {
 
   select.innerHTML = '<option value="">Todos os clientes</option>' +
     allClientes.map(c =>
-      `<option value="${c.id}" ${valorAtual === c.id ? 'selected' : ''}>${c.nome}</option>`
+      `<option value="${c.id}" ${valorAtual === c.id ? 'selected' : ''}>${escaparHtml(c.nome)}</option>`
     ).join('');
 }
 
@@ -133,8 +133,8 @@ function renderMetasFiltradas() {
     return `
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-          <p class="card-name">${meta.nome}</p>
-          <span class="meta-cliente-badge">${cliente?.nome || '—'}</span>
+          <p class="card-name">${escaparHtml(meta.nome)}</p>
+          <span class="meta-cliente-badge dado-sensivel">${escaparHtml(cliente?.nome) || '—'}</span>
         </div>
         <div class="meta-stats">
           <div>
@@ -155,11 +155,13 @@ function renderMetasFiltradas() {
         </div>
         <div class="card-actions">
           <button class="btn-card editar"  data-id="${meta.id}">✏️ Editar</button>
-          <button class="btn-card deletar" data-id="${meta.id}" data-nome="${meta.nome}">🗑️ Deletar</button>
+          <button class="btn-card deletar" data-id="${meta.id}" data-nome="${escaparHtml(meta.nome)}">🗑️ Deletar</button>
         </div>
       </div>
     `;
   }).join('');
+
+  if (typeof aplicarPrivacidadeNaGrade === 'function') aplicarPrivacidadeNaGrade(grid);
 
   grid.querySelectorAll('.btn-card.editar').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -187,7 +189,7 @@ async function abrirModalMeta(meta) {
 
   const select = document.getElementById('meta-cliente-select');
   select.innerHTML = allClientes.map(c =>
-    `<option value="${c.id}" ${meta?.client_id === c.id ? 'selected' : ''}>${c.nome}</option>`
+    `<option value="${c.id}" ${meta?.client_id === c.id ? 'selected' : ''}>${escaparHtml(c.nome)}</option>`
   ).join('');
 
   openModal('modal-meta');

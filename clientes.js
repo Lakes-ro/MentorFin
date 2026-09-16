@@ -66,31 +66,43 @@ async function renderClientes() {
     ? await contarMensagensNaoLidasPorCliente(allClientes.map(c => c.id))
     : {};
 
+  // ESTRUTURA FIXA DO CARD (ver .card--uniforme em admin.css): todo
+  // card tem exatamente as mesmas faixas, na mesma ordem e na mesma
+  // altura — identidade (nome/email), espaçador elástico e o bloco de
+  // ações colado na base. Antes, nome curto x nome longo mudava a
+  // altura da faixa de identidade e cada card empurrava os botões para
+  // uma altura diferente, dando o efeito de "cada um para um lado".
   grid.innerHTML = allClientes.map(c => {
     const naoLidas = mensagensNaoLidas[c.id] || 0;
     return `
-    <div class="card">
-      <div>
-        <p class="card-name">${c.nome}</p>
-        <p class="card-sub">${c.email || 'Sem email'}</p>
+    <div class="card card--uniforme">
+      <div class="card-identidade">
+        <div class="card-identidade__texto">
+          <p class="card-name dado-sensivel">${escaparHtml(c.nome)}</p>
+          <p class="card-sub dado-sensivel">${escaparHtml(c.email) || 'Sem email'}</p>
+        </div>
+        <button type="button" class="btn-olho" data-olho-card
+          title="Mostrar/ocultar nome e email deste cliente"
+          aria-label="Mostrar ou ocultar dados deste cliente">👁️</button>
       </div>
-      <div class="card-actions">
+      <div class="card-espacador"></div>
+      <div class="card-actions card-actions--grid">
         <button class="btn-card editar" data-id="${c.id}">✏️ Editar</button>
-        <button class="btn-card comentarios" data-id="${c.id}" data-nome="${c.nome}">💬 Comentários</button>
-      </div>
-      <div class="card-actions">
+        <button class="btn-card comentarios" data-id="${c.id}" data-nome="${escaparHtml(c.nome)}">💬 Comentários</button>
         <button class="btn-card lancamentos" data-id="${c.id}">📥 Lançamentos</button>
-        <button class="btn-card mensagens" data-id="${c.id}" data-nome="${c.nome}">
+        <button class="btn-card mensagens" data-id="${c.id}" data-nome="${escaparHtml(c.nome)}">
           💬 Mensagens
           <span class="mensagens-nao-lidas ${naoLidas ? '' : 'hidden'}" data-client-id="${c.id}">${naoLidas}</span>
         </button>
       </div>
-      <div class="card-actions">
-        <button class="btn-card deletar" data-id="${c.id}" data-nome="${c.nome}">🗑️ Deletar</button>
+      <div class="card-actions card-actions--full">
+        <button class="btn-card deletar" data-id="${c.id}" data-nome="${escaparHtml(c.nome)}">🗑️ Deletar</button>
       </div>
     </div>
   `;
   }).join('');
+
+  if (typeof aplicarPrivacidadeNaGrade === 'function') aplicarPrivacidadeNaGrade(grid);
 
   grid.querySelectorAll('.btn-card.editar').forEach(btn => {
     btn.addEventListener('click', () => {

@@ -41,7 +41,22 @@ const UIModule = (() => {
             }
         },
 
-        showMessage(message, type = 'info', duration = 3000) {
+        /**
+         * ⚠️ CORREÇÃO — AVISO ESCONDIDO ATRÁS DO MODAL DE IMPORTAÇÃO:
+         * este aviso usava z-index 10000, o MESMO valor do modal
+         * (.modal em style.css) e MENOS que o modal do admin
+         * (.modal-overlay, 10050). Empatado ou abaixo, ele era pintado
+         * atrás do pop-up — e justamente a mensagem mais importante do
+         * fluxo (a que diz qual linha está impedindo a importação)
+         * ficava ilegível. Agora sobe para o topo absoluto da pilha.
+         *
+         * Junto com isso: erro fica 9s na tela (contra 3s), porque a
+         * mensagem de impedimento traz o nome da linha e o motivo — não
+         * dá para ler e corrigir em 3 segundos — e qualquer aviso pode
+         * ser fechado no clique.
+         */
+        showMessage(message, type = 'info', duration = null) {
+            const tempo = duration ?? (type === 'error' ? 9000 : 3000);
             const msgDiv = document.createElement('div');
             msgDiv.className = `message message--${type}`;
             msgDiv.textContent = message;
@@ -49,9 +64,12 @@ const UIModule = (() => {
                 position: fixed;
                 top: 20px;
                 right: 20px;
+                left: auto;
+                max-width: min(420px, calc(100vw - 40px));
                 padding: 15px 20px;
                 border-radius: 8px;
-                z-index: 10000;
+                z-index: 2147483000;
+                cursor: pointer;
                 background: rgba(26,26,46,0.97);
                 border: 1px solid rgba(100,150,255,0.3);
                 color: #e0e0e0;
@@ -64,6 +82,9 @@ const UIModule = (() => {
             if (type === 'error')   { msgDiv.style.borderColor = 'rgba(255,100,100,0.5)'; msgDiv.style.color = '#ff6b6b'; }
             if (type === 'success') { msgDiv.style.borderColor = 'rgba(100,255,122,0.5)'; msgDiv.style.color = '#64ff7a'; }
 
+            msgDiv.title = 'Clique para fechar';
+            msgDiv.addEventListener('click', () => msgDiv.remove());
+
             document.body.appendChild(msgDiv);
 
             setTimeout(() => {
@@ -71,7 +92,7 @@ const UIModule = (() => {
                 msgDiv.style.transform = 'translateX(20px)';
                 msgDiv.style.transition = 'opacity 0.3s, transform 0.3s';
                 setTimeout(() => msgDiv.remove(), 320);
-            }, duration);
+            }, tempo);
         },
 
         showError(message)   { this.showMessage(message || '❌ Erro', 'error'); },

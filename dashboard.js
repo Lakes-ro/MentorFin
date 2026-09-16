@@ -220,83 +220,6 @@ const DashboardModule = (() => {
     }
 
     /**
-     * "💡 Observações sobre o seu período" — linguagem simples, sem
-     * jargão técnico, usando os rótulos que já aparecem na tela
-     * (Custo de Sobrevivência, Estilo de Vida, Investimentos, Dívidas).
-     * Só renderiza se o HTML tiver os containers correspondentes.
-     */
-    function gerarObservacoesCliente(m) {
-        const itens = [];
-        const totalTransacoes = (m.totalReceitas > 0 || m.totalDespesas > 0) ? 1 : 0; // presença de dados
-
-        if (!totalTransacoes) {
-            return { resumo: 'Ainda não há lançamentos neste período.', itens: [
-                { tipo: 'info', texto: 'Registe suas receitas e despesas para ver a sua análise financeira aqui.' }
-            ] };
-        }
-
-        if (m.saldoDisponivel < 0) {
-            itens.push({ tipo: 'alerta', texto: `Você gastou mais do que recebeu neste período (saldo de ${UIModule.formatCurrency(m.saldoDisponivel)}). Vale revisar os maiores gastos abaixo antes de qualquer outra decisão.` });
-        } else {
-            const taxaPoupanca = m.totalReceitas > 0 ? (m.saldoDisponivel / m.totalReceitas) * 100 : 0;
-            if (taxaPoupanca < 10) {
-                itens.push({ tipo: 'atencao', texto: `Sua taxa de poupança está em ${taxaPoupanca.toFixed(1)}%. Tentar guardar entre 10% e 20% da renda é uma boa meta para começar.` });
-            } else if (taxaPoupanca >= 20) {
-                itens.push({ tipo: 'positivo', texto: `Ótimo! Você guardou ${taxaPoupanca.toFixed(1)}% da sua renda neste período. Continue assim.` });
-            }
-        }
-
-        const percSobrevivencia = m.totalReceitas > 0 ? (m.custoDeSobrevivencia / m.totalReceitas) * 100 : 0;
-        if (percSobrevivencia > 50) {
-            itens.push({ tipo: 'atencao', texto: `O Custo de Sobrevivência está consumindo ${percSobrevivencia.toFixed(1)}% da sua renda — acima do recomendado (até 50%). Vale revisar contas fixas como moradia e alimentação.` });
-        }
-
-        const percEstilo = m.totalReceitas > 0 ? (m.custoDeVida / m.totalReceitas) * 100 : 0;
-        if (percEstilo > 30) {
-            itens.push({ tipo: 'atencao', texto: `O Estilo de Vida representa ${percEstilo.toFixed(1)}% da sua renda. Se quer sobrar mais dinheiro no fim do mês, este é o grupo com mais espaço para cortar.` });
-        }
-
-        if (m.aportesInvestimento <= 0) {
-            itens.push({ tipo: 'alerta', texto: 'Você ainda não guardou nada em Investimentos neste período. Mesmo um valor pequeno todo mês já faz diferença no longo prazo.' });
-        }
-
-        if (m.custoDivida > 0) {
-            const percDivida = m.totalReceitas > 0 ? (m.custoDivida / m.totalReceitas) * 100 : 0;
-            itens.push({
-                tipo: percDivida > 20 ? 'alerta' : 'atencao',
-                texto: `${percDivida.toFixed(1)}% da sua renda está comprometida com dívidas e financiamentos.` +
-                       (percDivida > 20 ? ' Priorizar a quitação pode liberar bastante espaço no seu orçamento.' : '')
-            });
-        }
-
-        const resumo = m.saldoDisponivel >= 0
-            ? `Neste período você recebeu ${UIModule.formatCurrency(m.totalReceitas)} e gastou ${UIModule.formatCurrency(m.totalDespesas)}, ficando com um saldo positivo de ${UIModule.formatCurrency(m.saldoDisponivel)}.`
-            : `Neste período você recebeu ${UIModule.formatCurrency(m.totalReceitas)} e gastou ${UIModule.formatCurrency(m.totalDespesas)}, resultando em um saldo negativo de ${UIModule.formatCurrency(Math.abs(m.saldoDisponivel))}.`;
-
-        return { resumo, itens };
-    }
-
-    function renderObservacoes(m) {
-        const container = document.getElementById('dashInsightsLista');
-        const resumoEl   = document.getElementById('dashInsightsResumo');
-        if (!container) return;
-
-        const { resumo, itens } = gerarObservacoesCliente(m);
-        if (resumoEl) resumoEl.textContent = resumo;
-
-        const ICONE = { alerta: '🔴', atencao: '🟡', positivo: '🟢', info: 'ℹ️' };
-
-        container.innerHTML = itens.length
-            ? itens.map(item => `
-                <div class="insight-item insight-item--${item.tipo}">
-                    <span class="insight-item__icone">${ICONE[item.tipo] || 'ℹ️'}</span>
-                    <span class="insight-item__texto">${item.texto}</span>
-                </div>
-            `).join('')
-            : '<p class="empty-state">Sem observações específicas para este período.</p>';
-    }
-
-    /**
      * CTA "🎯 Definir Meta de Gastos" — só aparece se o cliente ainda
      * não tem nenhuma meta cadastrada. Só age se o HTML tiver o bloco
      * (#dashMetaCta).
@@ -360,9 +283,6 @@ const DashboardModule = (() => {
                 // nunca deve derrubar os KPIs que já renderizaram acima. ──
                 try { renderMaioresGastos(data.categories, m.totalReceitas); }
                 catch (e) { console.error('❌ renderMaioresGastos:', e); }
-
-                try { renderObservacoes(m); }
-                catch (e) { console.error('❌ renderObservacoes:', e); }
 
                 try { await renderCtaMeta(clientId); }
                 catch (e) { console.error('❌ renderCtaMeta:', e); }

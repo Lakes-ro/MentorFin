@@ -164,12 +164,21 @@ function encontrarGrupoSemantico(texto) {
  * Retorna a categoria encontrada com um campo extra `_confiancaAlta`.
  * Retorna null se nada bater em nenhuma das 3 passadas.
  */
+/**
+ * ⚠️ ATUALIZAÇÃO — TRANSPARÊNCIA DO MATCH: além da categoria, agora
+ * também devolve `_termoCorrespondente` (o sinônimo/termo exato que
+ * bateu com a descrição) e `_origemTermo` ('sinonimo'|'nome'|'grupo
+ * semântico') — usado pela tabela de revisão de importação
+ * (importacao-extrato.js) para mostrar ao usuário, ao tocar no selo
+ * "🔑 Sinônimo", QUAL palavra-chave especificamente reconheceu aquela
+ * descrição (antes o selo só dizia "Sinônimo", sem dizer qual).
+ */
 function encontrarCategoriaPorPalavraChave(categorias, descricao) {
     const alvo = normalizarTexto(descricao);
     if (!alvo || !categorias || !categorias.length) return null;
 
     const melhorPorPassada = (fonteDeTermo) => {
-        let melhorMatch = null; // { cat, confiancaAlta }
+        let melhorMatch = null; // { cat, confiancaAlta, termoBruto }
         for (const cat of categorias) {
             const termos = fonteDeTermo(cat);
             for (const termoBruto of termos) {
@@ -179,9 +188,9 @@ function encontrarCategoriaPorPalavraChave(categorias, descricao) {
                 if (!resultado.match) continue;
 
                 if (resultado.confiancaAlta) {
-                    return { cat, confiancaAlta: true };
+                    return { cat, confiancaAlta: true, termoBruto };
                 }
-                if (!melhorMatch) melhorMatch = { cat, confiancaAlta: false };
+                if (!melhorMatch) melhorMatch = { cat, confiancaAlta: false, termoBruto };
             }
         }
         return melhorMatch;
@@ -189,11 +198,15 @@ function encontrarCategoriaPorPalavraChave(categorias, descricao) {
 
     // 1ª passada: sinônimos cadastrados pelo admin (palavras_chave)
     const porSinonimo = melhorPorPassada(cat => Array.isArray(cat.palavras_chave) ? cat.palavras_chave : []);
-    if (porSinonimo) return { ...porSinonimo.cat, _confiancaAlta: porSinonimo.confiancaAlta };
+    if (porSinonimo) {
+        return { ...porSinonimo.cat, _confiancaAlta: porSinonimo.confiancaAlta, _termoCorrespondente: porSinonimo.termoBruto, _origemTermo: 'sinonimo' };
+    }
 
     // 2ª passada: nome da própria categoria
     const porNome = melhorPorPassada(cat => [cat.nome]);
-    if (porNome) return { ...porNome.cat, _confiancaAlta: porNome.confiancaAlta };
+    if (porNome) {
+        return { ...porNome.cat, _confiancaAlta: porNome.confiancaAlta, _termoCorrespondente: porNome.termoBruto, _origemTermo: 'nome' };
+    }
 
     // 3ª passada: GRUPO SEMÂNTICO — só entra em ação se já existir uma
     // categoria REAL cadastrada com o nome canônico do grupo (ou
@@ -206,7 +219,7 @@ function encontrarCategoriaPorPalavraChave(categorias, descricao) {
             c.tipo === grupoSemantico.tipo && textoContemOuEhContido(normalizarTexto(c.nome), nomeCanonico)
         );
         if (categoriaCanonica) {
-            return { ...categoriaCanonica, _confiancaAlta: false };
+            return { ...categoriaCanonica, _confiancaAlta: false, _termoCorrespondente: grupoSemantico.categoria, _origemTermo: 'grupo semântico' };
         }
     }
 

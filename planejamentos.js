@@ -97,9 +97,9 @@ async function renderSolicitacoesPendentes() {
       <div class="card card--pendente">
         <div class="card-header-row">
           <div>
-            <p class="card-name">${cliente?.nome || 'Cliente desconhecido'}</p>
+            <p class="card-name dado-sensivel">${escaparHtml(cliente?.nome) || 'Cliente desconhecido'}</p>
             <p class="card-sub">Solicitado em ${formatDate(s.created_at)}</p>
-            ${s.mensagem ? `<p class="card-sub" style="margin-top:6px; font-style:italic;">"${s.mensagem}"</p>` : ''}
+            ${s.mensagem ? `<p class="card-sub" style="margin-top:6px; font-style:italic;">"${escaparHtml(s.mensagem)}"</p>` : ''}
           </div>
         </div>
         <div class="card-actions">
@@ -109,6 +109,8 @@ async function renderSolicitacoesPendentes() {
       </div>
     `;
   }).join('');
+
+  if (typeof aplicarPrivacidadeNaGrade === 'function') aplicarPrivacidadeNaGrade(grid);
 
   grid.querySelectorAll('.btn-atender-solicitacao').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -219,7 +221,7 @@ async function abrirModalPlanejamento(plan, opts = {}) {
   const select = document.getElementById('planejamento-cliente-select');
   const clienteAlvo = plan?.client_id || opts.clientIdPreSelecionado;
   select.innerHTML = allClientes.map(c =>
-    `<option value="${c.id}" ${clienteAlvo === c.id ? 'selected' : ''}>${c.nome}</option>`
+    `<option value="${c.id}" ${clienteAlvo === c.id ? 'selected' : ''}>${escaparHtml(c.nome)}</option>`
   ).join('');
 
   resetResumo();

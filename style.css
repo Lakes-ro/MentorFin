@@ -929,42 +929,6 @@ input::placeholder {
 .gasto-icon-card__valor { font-size: 15px; font-weight: 800; color: var(--red); }
 .gasto-icon-card__percentual { font-size: 11px; color: var(--text-muted); }
 
-/* ── Observações automáticas (Dashboard do cliente) ───────────── */
-.insights-resumo {
-  font-size: 13px;
-  color: var(--text-primary);
-  background: rgba(100, 150, 255, 0.05);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px;
-  margin-bottom: 14px;
-  line-height: 1.6;
-}
-
-.insights-list { display: flex; flex-direction: column; gap: 10px; }
-
-.insight-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  background: rgba(100, 150, 255, 0.05);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--text-primary);
-}
-
-.insight-item__icone { flex-shrink: 0; font-size: 15px; margin-top: 1px; }
-.insight-item__texto { flex: 1; }
-
-.insight-item--alerta   { border-left-color: var(--red); }
-.insight-item--atencao  { border-left-color: #ffb443; }
-.insight-item--positivo { border-left-color: var(--green); }
-.insight-item--info     { border-left-color: var(--cyan); }
-
 /* ── Filters (genérico — admin/razonete) ────────────────────── */
 .filters {
   display: grid;
@@ -1147,6 +1111,17 @@ input::placeholder {
 .import-review__origem-badge--local      { background: rgba(100, 150, 255, 0.14); color: var(--accent); }
 .import-review__origem-badge--manual     { background: rgba(255, 180, 67, 0.14); color: #ffb443; }
 .import-review__origem-badge--duplicada  { background: rgba(107, 158, 132, 0.14); color: var(--text-muted); }
+
+/* Selo clicável — mostra qual sinônimo/regra reconheceu a descrição
+   (toque no mobile, clique no PC). Herda tudo do selo comum, só troca
+   <span> por <button> e adiciona affordance de clique. */
+.import-review__origem-badge--clicavel {
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+.import-review__origem-badge--clicavel:hover,
+.import-review__origem-badge--clicavel:active { filter: brightness(1.15); }
 
 .import-review__actions {
   display: flex;
@@ -1763,3 +1738,74 @@ input::placeholder {
   .login-box { padding: 28px 18px; }
   .login-box__title { font-size: 23px; }
 }
+
+
+/* ══════════════════════════════════════════════════════════════
+   AVISO DE IMPEDIMENTO DA IMPORTAÇÃO (dentro do modal)
+   ══════════════════════════════════════════════════════════════ */
+.import-aviso {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 8px;
+  background: rgba(255, 77, 109, 0.12);
+  border: 1px solid rgba(255, 77, 109, 0.45);
+  color: #ffb3c1;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.import-aviso.hidden { display: none; }
+.import-aviso__icone { font-size: 1rem; line-height: 1.3; }
+.import-aviso__texto { flex: 1 1 auto; }
+
+.import-aviso__fechar {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+.import-aviso__fechar:hover { opacity: 1; }
+
+/* Linha que travou a importação */
+.import-row--impedida > td {
+  background: rgba(255, 77, 109, 0.16) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 77, 109, 0.5);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   OLHINHO DE MOSTRAR SENHA (login / cadastro)
+   ══════════════════════════════════════════════════════════════ */
+.input-senha { position: relative; display: block; }
+
+.input-senha input {
+  width: 100%;
+  /* espaço reservado pro botão não cobrir o texto digitado */
+  padding-right: 44px !important;
+}
+
+.btn-ver-senha {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 6px;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+
+.btn-ver-senha:hover,
+.btn-ver-senha:focus-visible { opacity: 1; }

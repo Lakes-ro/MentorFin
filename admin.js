@@ -30,6 +30,15 @@ function closeModal(id) {
   if (el) el.classList.add('hidden');
 }
 
+/**
+ * ⚠️ CORREÇÃO — TOAST ILEGÍVEL POR TRÁS DO MODAL DE IMPORTAÇÃO:
+ * o .toast ficava em z-index 9999, ABAIXO de .modal-overlay (10050).
+ * Com o modal de importação aberto, a mensagem que explica qual linha
+ * está impedindo a gravação era pintada atrás do pop-up. O z-index foi
+ * corrigido no admin.css; aqui o erro passa a ficar 9s na tela (a
+ * mensagem de impedimento é longa e precisa ser lida por inteiro) e
+ * pode ser fechado no clique.
+ */
 function showToast(msg, type = 'success') {
   const toast = document.getElementById('toast');
   if (!toast) return;
@@ -37,9 +46,15 @@ function showToast(msg, type = 'success') {
   toast.textContent = msg;
   toast.className   = `toast ${type}`;
   toast.classList.remove('hidden');
+  toast.title = 'Clique para fechar';
+
+  if (!toast._fecharLigado) {
+    toast.addEventListener('click', () => toast.classList.add('hidden'));
+    toast._fecharLigado = true;
+  }
 
   clearTimeout(toast._timer);
-  toast._timer = setTimeout(() => toast.classList.add('hidden'), 3000);
+  toast._timer = setTimeout(() => toast.classList.add('hidden'), type === 'error' ? 9000 : 3000);
 }
 
 function formatCurrency(val) {
@@ -168,6 +183,11 @@ const AdminModule = (() => {
     // Inicia navegação e logout
     initNavigation();
     initLogout();
+
+    // Modo privacidade PRIMEIRO: se estiver ligado no localStorage, o
+    // blur já precisa estar valendo quando as grades renderizarem —
+    // senão os nomes aparecem por uma fração de segundo antes de sumir.
+    if (typeof initPrivacidade   === 'function') initPrivacidade();
 
     // Inicia sub-módulos (definidos nos outros scripts)
     if (typeof initClientes      === 'function') initClientes();

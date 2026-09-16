@@ -91,9 +91,12 @@ async function marcarMensagensClienteComoLidas(clienteId) {
             .eq('remetente', 'cliente')
             .eq('lida', false);
 
-        // Zera o selo no card assim que a conversa é aberta/lida
+        // Zera o selo no card assim que a conversa é aberta/lida — reseta
+        // o texto pra "0" também, não só esconde, senão uma mensagem nova
+        // chegando depois via Realtime incrementaria a partir do número
+        // antigo (ver ligarRealtimeMensagensClientes em clientes.js).
         const badge = document.querySelector(`.mensagens-nao-lidas[data-client-id="${clienteId}"]`);
-        badge?.classList.add('hidden');
+        if (badge) { badge.textContent = '0'; badge.classList.add('hidden'); }
     } catch (err) {
         console.warn('⚠️ marcarMensagensClienteComoLidas:', err.message);
     }

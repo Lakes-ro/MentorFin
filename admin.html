@@ -52,6 +52,35 @@
         <h1 class="panel-title">👤 Painel do Administrador</h1>
         <p class="panel-subtitle" id="admin-subtitle">Carregando...</p>
       </div>
+
+      <div class="panel-header__acoes">
+
+        <!-- Modo privacidade — embaça nome/email dos clientes em todas
+             as grades. Ver privacidade.js. -->
+        <button type="button" id="btn-privacidade" class="btn-privacidade"
+          aria-pressed="false" title="Ocultar nomes e emails dos clientes">👁️</button>
+
+        <!-- Central de Notificações — ver notificacoes-admin.js. Avisa
+             sobre: novo cliente cadastrado, cliente criou categoria
+             própria (pendente de revisão), risco financeiro virou
+             amarelo/vermelho, e nova mensagem de um cliente. -->
+        <div class="notif-bell-wrapper">
+        <button type="button" id="btn-notificacoes" class="btn-notif-bell" title="Notificações">
+          🔔
+          <span id="notif-badge" class="notif-badge hidden">0</span>
+        </button>
+        <div id="notif-painel" class="notif-painel hidden">
+          <div class="notif-painel__header">
+            <h4>Notificações</h4>
+            <button type="button" id="btn-marcar-todas-lidas" class="notif-marcar-lidas">Marcar todas como lidas</button>
+          </div>
+          <div id="notif-lista" class="notif-lista">
+            <p class="empty-state">Carregando...</p>
+          </div>
+        </div>
+      </div>
+
+      </div>
     </header>
 
     <!-- ── CLIENTES ─────────────────────────────────────────── -->
@@ -293,6 +322,19 @@
           </select>
         </div>
         <div class="form-group">
+          <label>Alcance</label>
+          <select id="categoria-alcance">
+            <option value="global">🌐 Global (disponível para todos os clientes)</option>
+            <option value="pessoal">👤 Específica de um cliente</option>
+          </select>
+        </div>
+        <div class="form-group hidden" id="categoria-cliente-wrapper">
+          <label>Cliente</label>
+          <!-- Opções preenchidas por popularSelectClienteCategoria()
+               em categorias.js, a partir de allClientes (admin.js) -->
+          <select id="categoria-cliente-select"></select>
+        </div>
+        <div class="form-group">
           <label>Grupo</label>
           <!-- Opções preenchidas dinamicamente por atualizarOpcoesDeGrupo()
                em categorias.js, conforme o Tipo escolhido acima -->
@@ -425,6 +467,15 @@
             <div id="importResumoStatus" class="import-status hidden"></div>
 
             <div id="importReviewContainer" class="import-review hidden">
+
+              <!-- AVISO DE IMPEDIMENTO — fica DENTRO do modal, logo
+                   acima da tabela. O toast sozinho não servia: ele
+                   nasce fora do modal e ficava atrás do pop-up de
+                   importação, escondendo justamente a informação que
+                   destrava o fluxo. Ver destacarImpedimentoImportacao()
+                   em importacao-extrato.js. -->
+              <div id="importAvisoImpedimento" class="import-aviso hidden" role="alert"></div>
+
               <div class="import-review__header">
                 <h4>Revise antes de importar</h4>
                 <label class="import-review__select-all">
@@ -467,6 +518,33 @@
         <button class="modal-close" data-modal="modal-dashboard">✕</button>
       </div>
       <div class="modal-body" id="modal-dashboard-body">
+
+        <!-- FILTRO DE PERÍODO — vale para as TRÊS abas ao mesmo tempo
+             (Resumo, DRE e Balancete). Ver aplicarPeriodoDashboard()
+             em dashboards.js: o filtro roda sobre as transações já
+             carregadas em memória, sem nova consulta ao banco. -->
+        <div class="periodo-bar" id="dashboard-periodo-bar">
+          <div class="periodo-bar__campo">
+            <label for="dashboard-periodo">📅 Período</label>
+            <select id="dashboard-periodo">
+              <option value="todos">Todos os lançamentos</option>
+              <option value="mes-atual">Mês atual</option>
+              <option value="mes-anterior">Mês anterior</option>
+              <option value="3m">Últimos 3 meses</option>
+              <option value="6m">Últimos 6 meses</option>
+              <option value="12m">Últimos 12 meses</option>
+              <option value="ano-atual">Ano atual</option>
+              <option value="personalizado">Personalizado…</option>
+            </select>
+          </div>
+          <div class="periodo-bar__campo periodo-bar__custom hidden" id="dashboard-periodo-custom">
+            <label for="dashboard-periodo-inicio">De</label>
+            <input type="date" id="dashboard-periodo-inicio">
+            <label for="dashboard-periodo-fim">Até</label>
+            <input type="date" id="dashboard-periodo-fim">
+          </div>
+          <span class="periodo-bar__info" id="dashboard-periodo-info">—</span>
+        </div>
 
         <!-- Abas — ver initModalDashboardTabs()/ativarAbaModalDashboard()
              em dashboards.js -->
@@ -743,9 +821,12 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5/papaparse.min.js"></script>
   <script src="config.js"></script>
+  <script src="seguranca.js"></script>
   <script src="admin.js"></script>
+  <script src="notificacoes-admin.js"></script>
   <script src="contabilidade.js"></script>
   <script src="categorias.js"></script>
+  <script src="privacidade.js"></script>
   <script src="clientes.js"></script>
   <script src="dashboards.js"></script>
   <script src="metas.js"></script>

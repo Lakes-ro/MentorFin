@@ -379,7 +379,7 @@ async function classificarLinhaImportacao(clienteId, descricao, tipoSugerido) {
         const regra = await RegrasAprendidasModule.buscarRegra(clienteId, descricao);
         if (regra) {
             const cat = categoriasCacheImportacao.find(c => c.id === regra.categoria_id);
-            if (cat) return { categoriaId: cat.id, categoriaNome: cat.nome, origem: 'aprendida' };
+            if (cat) return { categoriaId: cat.id, categoriaNome: cat.nome, origem: 'aprendida', termoCorrespondente: regra.termo_busca };
         }
     }
 
@@ -392,7 +392,7 @@ async function classificarLinhaImportacao(clienteId, descricao, tipoSugerido) {
         const catPorSinonimo = encontrarCategoriaPorPalavraChave(categoriasCacheImportacao, descricao);
         if (catPorSinonimo && catPorSinonimo.tipo === tipoSugerido) {
             const origem = catPorSinonimo._confiancaAlta === false ? 'palavra_chave_aproximada' : 'palavra_chave';
-            return { categoriaId: catPorSinonimo.id, categoriaNome: catPorSinonimo.nome, origem };
+            return { categoriaId: catPorSinonimo.id, categoriaNome: catPorSinonimo.nome, origem, termoCorrespondente: catPorSinonimo._termoCorrespondente };
         }
     }
 
@@ -496,6 +496,7 @@ async function processarArquivoImportacao() {
                 tipo:        linha.tipo,
                 categoriaId: classificacao.categoriaId,
                 origem:      classificacao.origem,
+                termoCorrespondente: classificacao.termoCorrespondente || null,
                 importHash:  linha.importHash,
                 duplicada,
                 incluir:     !duplicada
@@ -600,6 +601,17 @@ function renderizarTabelaRevisao() {
         const badge = ORIGEM_BADGE_LABEL[linha.origem] || ORIGEM_BADGE_LABEL.manual;
         const classeLinha = linha.duplicada ? 'import-row--duplicada' : '';
 
+        // Selos com um termo/sinônimo específico por trás (Sinônimo,
+        // Sugestão aproximada, Aprendida) ficam clicáveis — ao tocar,
+        // mostra QUAL termo reconheceu aquela descrição. Selos sem
+        // termo associado (Manual, Pré-classificado, Já importada)
+        // continuam apenas informativos, sem interação.
+        const temTermo = !!linha.termoCorrespondente;
+        const badgeHtml = temTermo
+            ? `<button type="button" class="import-review__origem-badge import-review__origem-badge--${badge.classe} import-review__origem-badge--clicavel"
+                       data-termo="${escaparHtmlAtributo(linha.termoCorrespondente)}" title="Toque para ver o termo reconhecido">${badge.texto} 🛈</button>`
+            : `<span class="import-review__origem-badge import-review__origem-badge--${badge.classe}">${badge.texto}</span>`;
+
         return `
             <tr class="${classeLinha}" data-id-temp="${linha.idTemp}">
                 <td><input type="checkbox" class="import-check-incluir" ${linha.incluir ? 'checked' : ''} ${linha.duplicada ? 'disabled' : ''}></td>
@@ -617,13 +629,24 @@ function renderizarTabelaRevisao() {
                         ${montarOpcoesCategoriaImportacao(linha.categoriaId)}
                     </select>
                 </td>
-                <td><span class="import-review__origem-badge import-review__origem-badge--${badge.classe}">${badge.texto}</span></td>
+                <td>${badgeHtml}</td>
             </tr>
         `;
     }).join('');
 
     document.getElementById('importReviewContainer')?.classList.remove('hidden');
     document.getElementById('importSelecionarTodas').checked = linhasImportacao.some(l => l.incluir);
+
+    corpo.querySelectorAll('.import-review__origem-badge--clicavel').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const termo = btn.dataset.termo;
+            if (typeof UIModule !== 'undefined' && UIModule.showMessage) {
+                UIModule.showMessage(`🔑 Reconhecido pelo termo/regra: "${termo}"`, 'info', 4500);
+            } else {
+                alert(`Reconhecido pelo termo/regra: "${termo}"`);
+            }
+        });
+    });
 
     ligarEventosLinhasImportacao();
 }
@@ -696,6 +719,46 @@ function cancelarImportacao() {
     if (input) input.value = '';
 }
 
+
+// ══════════════════════════════════════════════════════════════
+// IMPEDIMENTOS DA IMPORTAÇÃO — aviso DENTRO do modal
+// ══════════════════════════════════════════════════════════════
+/**
+ * O toast nasce no <body>, fora do modal, e por isso era pintado
+ * ATRÁS do pop-up de importação — a mensagem que diz exatamente qual
+ * linha está travando a gravação ficava ilegível. Aqui o aviso passa a
+ * ser mostrado em três lugares ao mesmo tempo:
+ *   1) banner fixo no topo do container de revisão (#importAvisoImpedimento);
+ *   2) a própria linha da tabela destacada em vermelho;
+ *   3) rolagem automática até essa linha.
+ * O toast continua sendo disparado, mas já não é a única pista.
+ */
+function destacarImpedimentoImportacao(linha, mensagem) {
+    UIModule.showError(mensagem);
+
+    const aviso = document.getElementById('importAvisoImpedimento');
+    if (aviso) {
+        aviso.innerHTML = `<span class="import-aviso__icone">⛔</span>
+            <span class="import-aviso__texto">${mensagem}</span>
+            <button type="button" class="import-aviso__fechar" aria-label="Fechar aviso">✕</button>`;
+        aviso.classList.remove('hidden');
+        aviso.querySelector('.import-aviso__fechar')
+            ?.addEventListener('click', limparImpedimentoImportacao);
+    }
+
+    const tr = document.querySelector(`#importReviewTableBody tr[data-id-temp="${linha?.idTemp}"]`);
+    if (tr) {
+        tr.classList.add('import-row--impedida');
+        tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
+
+function limparImpedimentoImportacao() {
+    document.getElementById('importAvisoImpedimento')?.classList.add('hidden');
+    document.querySelectorAll('.import-row--impedida')
+        .forEach(tr => tr.classList.remove('import-row--impedida'));
+}
+
 // ══════════════════════════════════════════════════════════════
 // CONFIRMAÇÃO: SALVA NO BANCO + APRENDE AS CORREÇÕES
 // ══════════════════════════════════════════════════════════════
@@ -718,15 +781,22 @@ async function confirmarImportacao() {
         return;
     }
 
+    limparImpedimentoImportacao();
+
     for (const linha of linhasParaSalvar) {
         if (!linha.categoriaId) {
-            UIModule.showError(`Falta escolher a categoria de "${linha.descricao}" antes de confirmar.`);
+            destacarImpedimentoImportacao(linha, `Falta escolher a categoria de "${linha.descricao}" antes de confirmar.`);
             return;
         }
         const cat = categoriasCacheImportacao.find(c => c.id === linha.categoriaId);
-        if (!cat) { UIModule.showError(`Categoria inválida em "${linha.descricao}".`); return; }
+        if (!cat) {
+            destacarImpedimentoImportacao(linha, `Categoria inválida em "${linha.descricao}". Escolha outra categoria na lista.`);
+            return;
+        }
         if (cat.tipo !== linha.tipo) {
-            UIModule.showError(`A categoria de "${linha.descricao}" é de ${cat.tipo}, mas a linha está marcada como ${linha.tipo}. Corrige o tipo ou a categoria.`);
+            destacarImpedimentoImportacao(linha,
+                `A categoria "${cat.nome}" é de ${cat.tipo}, mas a linha "${linha.descricao}" está marcada como ${linha.tipo}. ` +
+                `Corrija o tipo ou troque a categoria.`);
             return;
         }
     }

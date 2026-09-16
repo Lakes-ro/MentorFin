@@ -14,6 +14,10 @@
  *   1. 👋 Novo cliente cadastrado
  *   2. 🏷️ Cliente criou uma categoria própria (pendente de revisão)
  *   3. 🟡/🔴 Risco financeiro de um cliente MUDOU pra amarelo/vermelho
+ *   4. 💬 Cliente mandou uma mensagem pelo app (ver
+ *      MIGRACAO-notificacoes-admin.sql + mensagens-admin.js) — clicar
+ *      nesta notificação abre direto o modal de conversa com aquele
+ *      cliente, sem navegar para nenhuma seção.
  *
  * COMO FUNCIONA:
  *   - Ao iniciar, busca as últimas 50 notificações do admin logado.
@@ -36,7 +40,8 @@ const NOTIF_ICONE = {
   novo_cliente:   '👋',
   nova_categoria: '🏷️',
   risco_amarelo:  '🟡',
-  risco_vermelho: '🔴'
+  risco_vermelho: '🔴',
+  nova_mensagem:  '💬'
 };
 
 function initNotificacoesAdmin() {
@@ -146,6 +151,16 @@ function renderNotifLista() {
 async function handleClickNotificacao(id, clientId, tipo) {
   await marcarComoLida(id);
   fecharNotifPainel();
+
+  // Mensagem nova -> abre direto a conversa (é um modal, não uma seção)
+  if (tipo === 'nova_mensagem' && clientId) {
+    if (!allClientes.length) await loadAllClientes();
+    const cliente = allClientes.find(c => c.id === clientId);
+    if (cliente && typeof abrirModalMensagensCliente === 'function') {
+      abrirModalMensagensCliente(cliente.id, cliente.nome);
+    }
+    return;
+  }
 
   const secaoAlvo = tipo === 'novo_cliente'   ? 'clientes'
                    : tipo === 'nova_categoria' ? 'categorias'
