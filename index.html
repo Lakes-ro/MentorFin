@@ -25,7 +25,7 @@
             <p class="login-box__subtitle">Plataforma de Inteligência Financeira</p>
             <form onsubmit="handleLogin(event)">
                 <div class="form-group">
-                    <label>Email</label>
+                    <label>E-mail</label>
                     <input type="email" id="loginEmail" placeholder="seu@email.com" required>
                 </div>
                 <div class="form-group">
@@ -39,10 +39,34 @@
                 <button type="submit" class="btn btn--primary">Entrar</button>
             </form>
             <div id="loginError" class="login-error hidden"></div>
+
+            <!-- Login com Google (Supabase OAuth) — ver loginComGoogle() em app.js -->
+            <div class="login-divisor"><span>ou</span></div>
+            <button type="button" class="btn-google" id="btnLoginGoogle" onclick="loginComGoogle()">
+                <svg viewBox="0 0 48 48" width="20" height="20" aria-hidden="true">
+                    <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/>
+                    <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
+                    <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/>
+                    <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/>
+                </svg>
+                Entrar com Google
+            </button>
+
             <p class="login-box__toggle-text">
                 Não tem conta?
                 <a href="#" onclick="toggleScreen('registerScreen'); return false;">Criar conta</a>
             </p>
+
+            <!-- Demonstração com dados fictícios — página independente,
+                 não toca no banco (demo.html). -->
+            <a class="login-demo" href="demo.html">
+                <span class="login-demo__icone">👀</span>
+                <span class="login-demo__texto">
+                    <strong>Ver demonstração</strong>
+                    <small>Explore o sistema com dados de exemplo, sem criar conta</small>
+                </span>
+                <span class="login-demo__seta">→</span>
+            </a>
         </div>
     </div>
 
@@ -55,7 +79,7 @@
             <p class="login-box__subtitle">Crie o seu acesso gratuito</p>
             <form onsubmit="handleRegister(event)">
                 <div class="form-group">
-                    <label>Nome Completo</label>
+                    <label>Nome completo</label>
                     <input type="text" id="registerNome" placeholder="Ex: Vinícius Viana" required>
                 </div>
                 <div class="form-group">
@@ -63,7 +87,7 @@
                     <input type="text" id="registerApelido" placeholder="Ex: Vini" required>
                 </div>
                 <div class="form-group">
-                    <label>Email</label>
+                    <label>E-mail</label>
                     <input type="email" id="registerEmail" placeholder="seu@email.com" required>
                 </div>
                 <div class="form-group">
@@ -75,7 +99,7 @@
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>Confirmar Senha</label>
+                    <label>Confirmar senha</label>
                     <div class="input-senha">
                         <input type="password" id="registerPasswordConfirm" placeholder="Repita a senha" required>
                         <button type="button" class="btn-ver-senha" data-alvo="registerPasswordConfirm"
@@ -85,6 +109,16 @@
                 <button type="submit" class="btn btn--primary">Criar Conta</button>
                 <div id="registerError" class="login-error hidden" style="margin-top:12px;"></div>
             </form>
+            <div class="login-divisor"><span>ou</span></div>
+            <button type="button" class="btn-google" onclick="loginComGoogle()">
+                <svg viewBox="0 0 48 48" width="20" height="20" aria-hidden="true">
+                    <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/>
+                    <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
+                    <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/>
+                    <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/>
+                </svg>
+                Criar conta com Google
+            </button>
             <p class="login-box__toggle-text">
                 Já tem conta?
                 <a href="#" onclick="toggleScreen('loginScreen'); return false;">Fazer login</a>
@@ -93,15 +127,15 @@
     </div>
 
     <!-- ============================================================
-         TELA: ONBOARDING (primeiro acesso — fallback)
+         TELA: ONBOARDING (primeiro acesso — completa nome e apelido)
     ============================================================ -->
     <div id="onboardingScreen" class="screen screen--centered">
         <div class="login-box" style="max-width:480px;">
             <h1 class="login-box__title">👋 Bem-vindo!</h1>
-            <p class="login-box__subtitle">Só falta completar o teu perfil para começar</p>
+            <p class="login-box__subtitle">Só falta completar o seu perfil para começar</p>
             <form onsubmit="handleOnboarding(event)">
                 <div class="form-group">
-                    <label>Nome Completo</label>
+                    <label>Nome completo</label>
                     <input type="text" id="onboardingNome" placeholder="Ex: Roger Hugo Santos" required>
                 </div>
                 <div class="form-group">
@@ -149,6 +183,18 @@
 
             <!-- DASHBOARD CLIENTE -->
             <section id="cli-dashboard" class="view-section active">
+
+                <!-- GAMIFICAÇÃO — nível/XP, sequência e saúde do mês.
+                     Preenchido por GamificacaoModule (gamificacao.js). -->
+                <div id="gamiHero" class="gami-hero" aria-live="polite"></div>
+
+                <!-- ORDEM DO PAINEL (organizada por pergunta):
+                     1) "Como estou?"  → nível, sequência e saúde (acima)
+                     2) "Meu dinheiro" → resumo, para onde foi, maiores
+                        gastos (seguem o filtro de período) e evolução
+                     3) "Minha jornada" → missões, cofrinhos, conquistas -->
+                <div class="painel-grupo"><span>💰 Seu dinheiro</span></div>
+
                 <div class="card">
                     <div class="card__header-row">
                         <h3>📊 Resumo do Período</h3>
@@ -200,62 +246,67 @@
                 </div>
 
                 <div class="card">
-                    <h3>🎯 Análise Financeira</h3>
+                    <div class="card__header-row">
+                        <h3>🧭 Para onde foi o dinheiro</h3>
+                        <span class="card__hint">no período escolhido acima</span>
+                    </div>
                     <div class="bi-grid">
                         <div class="bi-item">
-                            <span class="bi-label">Custo de Sobrevivência</span>
+                            <span class="bi-label">🏠 Essenciais</span>
                             <span class="bi-value" id="biSurvivalCost">R$ 0,00</span>
+                            <span class="bi-detail" id="biSurvivalPct"></span>
                         </div>
                         <div class="bi-item">
-                            <span class="bi-label">Estilo de Vida</span>
+                            <span class="bi-label">🎯 Estilo de Vida</span>
                             <span class="bi-value" id="biLifestyleCost">R$ 0,00</span>
+                            <span class="bi-detail" id="biLifestylePct"></span>
                         </div>
                         <div class="bi-item">
-                            <span class="bi-label">Investimentos</span>
+                            <span class="bi-label">💰 Investimentos</span>
                             <span class="bi-value" id="biInvestments">R$ 0,00</span>
+                            <span class="bi-detail" id="biInvestmentsPct"></span>
                         </div>
                         <div class="bi-item">
-                            <span class="bi-label">Dívidas e Financiamentos</span>
+                            <span class="bi-label">💳 Dívidas e Financiamentos</span>
                             <span class="bi-value" id="biDebt">R$ 0,00</span>
+                            <span class="bi-detail" id="biDebtPct"></span>
                         </div>
-                        <div class="bi-item">
-                            <span class="bi-label">Renda Passiva</span>
-                            <span class="bi-value" id="biPassiveIncome">R$ 0,00</span>
-                        </div>
-                        <div class="bi-item">
-                            <span class="bi-label">Índice de Cobertura</span>
-                            <span class="bi-value" id="biCoverage">0%</span>
+                        <div class="bi-item bi-item--destaque">
+                            <span class="bi-label">📊 Taxa de Poupança</span>
+                            <span class="bi-value" id="biSavingsRate">—</span>
+                            <span class="bi-detail" id="biSavingsRateDetail"></span>
                         </div>
                     </div>
-                </div>
-
-                <!-- CTA: aparece só quando o cliente ainda não tem
-                     nenhuma meta cadastrada — ver DashboardModule.renderCtaMeta()
-                     em dashboard.js. -->
-                <div id="dashMetaCta" class="card meta-cta-card hidden">
-                    <div class="meta-cta-card__texto">
-                        <h3>🎯 Ainda não tens uma meta de gastos</h3>
-                        <p>Definir um objetivo — mesmo pequeno — ajuda a acompanhar se o mês está indo como planeado.</p>
-                    </div>
-                    <button type="button" class="btn btn--primary" onclick="navegarParaSecaoCliente('cli-goals')">
-                        + Definir Meta de Gastos
-                    </button>
                 </div>
 
                 <!-- Maiores Gastos do Período — cartões com ícone por
                      categoria, ver DashboardModule (dashboard.js). -->
                 <div class="card">
-                    <h3>🏆 Maiores Gastos do Período</h3>
+                    <h3>🔎 Maiores Gastos do Período</h3>
                     <div id="dashTopGastosGrid" class="gasto-icon-grid">
                         <p class="empty-state">Carregando...</p>
                     </div>
                 </div>
+
+                <!-- Evolução de receitas x despesas nos últimos 6 meses -->
+                <div class="card" id="gamiEvolucao"></div>
+
+                <div class="painel-grupo"><span>🎮 Sua jornada</span></div>
+
+                <!-- Missões da semana + cofrinhos (metas) lado a lado -->
+                <div class="gami-duplo">
+                    <div class="card" id="gamiMissoes"></div>
+                    <div class="card" id="gamiCofrinhos"></div>
+                </div>
+
+                <!-- Conquistas desbloqueáveis (gamificacao.js) -->
+                <div class="card" id="gamiConquistas"></div>
             </section>
 
             <!-- TRANSAÇÕES CLIENTE -->
             <section id="cli-transactions" class="view-section">
                 <div class="card">
-                    <h3>➕ Registar Transação</h3>
+                    <h3>➕ Registrar Transação</h3>
                     <form onsubmit="handleAddTransaction(event)">
                         <div class="form-group">
                             <label>Descrição (opcional)</label>
@@ -289,7 +340,7 @@
                                 <input type="date" id="transDate" required>
                             </div>
                         </div>
-                        <button type="submit" class="btn btn--primary">Registar</button>
+                        <button type="submit" class="btn btn--primary">Registrar</button>
                     </form>
                 </div>
 
@@ -349,7 +400,7 @@
                     </div>
                 </div>
 
-                <!-- HISTÓRICO — agora recolhível: o cabeçalho é um botão
+                <!-- HISTÓRICO — recolhível: o cabeçalho é um botão
                      (.btn-collapse) que abre/fecha #historicoConteudo
                      (filtros + lista) via toggleHistoricoCard() (app.js). -->
                 <div class="card">
@@ -392,7 +443,7 @@
                         </div>
 
                         <div id="transactionHistoryList" class="transactions-list">
-                            <p class="empty-state">Nenhuma transação registada</p>
+                            <p class="empty-state">Nenhuma transação registrada</p>
                         </div>
                     </div>
                 </div>
@@ -426,7 +477,7 @@
                          vincular uma transação de Investimento a uma meta. -->
                     <div class="meta-dica-box">
                         💡 <strong>Como fazer o "Economizado" da sua meta subir sozinho:</strong>
-                        na aba <strong>Transações</strong>, registe um lançamento com uma categoria de
+                        na aba <strong>Transações</strong>, registre um lançamento com uma categoria de
                         <strong>Investimento</strong> (ex: "Aporte", "Reserva de Emergência") — vai aparecer um
                         campo <strong>"🎯 Vincular a uma Meta"</strong>. Escolha a meta ali e o valor entra
                         automaticamente no progresso dela. Também dá pra editar o valor manualmente clicando em
@@ -465,9 +516,10 @@
                     </div>
 
                     <form id="formEnviarMensagem" class="mensagens-form" onsubmit="return false;">
-                        <textarea id="mensagemTexto" rows="2" placeholder="Escreva sua mensagem..." maxlength="1000"></textarea>
+                        <textarea id="mensagemTexto" rows="3" placeholder="Escreva sua mensagem..." maxlength="1000"></textarea>
                         <button type="button" id="btnEnviarMensagem" class="btn btn--primary" onclick="handleEnviarMensagemCliente()">Enviar</button>
                     </form>
+                    <p class="mensagens-form__dica">Enter envia · Shift+Enter quebra a linha</p>
                 </div>
             </section>
         </main>
@@ -538,20 +590,24 @@
 </div>
 
 <!-- ============================================================
-     MODAL: PERFIL CLIENTE
+     MODAL: PERFIL CLIENTE — nome completo, apelido e e-mail em
+     campos separados (o e-mail nunca aparece como nome). Preenchido
+     por showClientProfile() em app.js.
 ============================================================ -->
 <div id="clientProfileModal" class="modal hidden">
-    <div class="modal__content">
+    <div class="modal__content" style="max-width:460px;">
         <header class="modal__header">
             <h2>👤 Meu Perfil</h2>
             <button onclick="closeModal('clientProfileModal')" class="modal__close-btn">✕</button>
         </header>
         <div class="modal__body">
             <div style="background: rgba(100, 150, 255, 0.1); padding: 20px; border-radius: 8px;">
-                <p style="color:#a0a0b0; font-size:12px; margin-bottom:6px;">Nome</p>
+                <p style="color:var(--text-mid); font-size:12px; margin-bottom:6px;">Nome completo</p>
                 <p id="profileClientName" style="color:#fff; font-size:18px; font-weight:700;"></p>
-                <p style="color:#a0a0b0; font-size:12px; margin:15px 0 6px;">Email</p>
-                <p id="profileClientEmail" style="color:#6495ff; font-size:14px;"></p>
+                <p style="color:var(--text-mid); font-size:12px; margin:15px 0 6px;">Como quer ser chamado</p>
+                <p id="profileClientNickname" style="color:#fff; font-size:15px; font-weight:600;"></p>
+                <p style="color:var(--text-mid); font-size:12px; margin:15px 0 6px;">E-mail</p>
+                <p id="profileClientEmail" style="color:var(--accent); font-size:14px; word-break:break-all;"></p>
             </div>
             <button onclick="handleLogout()" class="btn btn--logout" style="width:100%; margin-top:20px;">🚪 Sair da conta</button>
         </div>
@@ -648,6 +704,7 @@
 <script src="importacao-extrato.js"></script>
 <script src="categoria-personalizada.js"></script>
 <script src="mensagens-cliente.js"></script>
+<script src="gamificacao.js"></script>
 
 </body>
 </html>

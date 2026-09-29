@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demonstração · Gestor Financeiro</title>
+    <link rel="icon" type="image/png" href="logo.png">
+    <link rel="stylesheet" href="style.css">
+    <!--
+      DEMONSTRAÇÃO — página 100% independente do banco.
+      Não carrega supabase-js nem nenhum módulo que acessa dados reais.
+      Todos os números vêm de lançamentos FICTÍCIOS gerados abaixo
+      (gerarDadosDemo) e são calculados com as mesmas regras do painel
+      real (dashboard.js + gamificacao.js). Tudo o que a pessoa fizer
+      aqui fica só na memória desta aba.
+    -->
+    <style>
+        body { visibility: visible; }
+
+        /* Faixa fixa do modo demonstração */
+        .demo-faixa {
+            position: sticky; top: 0; z-index: 1500;
+            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+            padding: 10px 16px; margin: -24px -24px 20px;
+            background: linear-gradient(90deg, rgba(52, 211, 153, 0.18), rgba(100, 150, 255, 0.18));
+            border-bottom: 1px solid rgba(52, 211, 153, 0.4);
+            backdrop-filter: blur(12px);
+        }
+        .demo-faixa__selo {
+            font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+            color: #0f0f1e; background: var(--gami-bom); padding: 3px 9px; border-radius: 999px;
+        }
+        .demo-faixa__texto { flex: 1; min-width: 180px; color: var(--text-primary); font-size: 13px; }
+        .demo-faixa__acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+        .demo-faixa .btn--primary { width: auto; padding: 8px 16px; font-size: 13.5px; text-decoration: none; display: inline-block; }
+        .demo-faixa .btn--secondary { padding: 8px 14px; font-size: 13px; text-decoration: none; display: inline-block; }
+
+        /* Explicações ("o que é isso?") */
+        .demo-dica {
+            display: flex; gap: 10px; align-items: flex-start;
+            padding: 11px 14px; border-radius: 10px;
+            background: rgba(251, 191, 36, 0.08);
+            border: 1px dashed rgba(251, 191, 36, 0.5);
+            color: var(--text-primary); font-size: 13px; line-height: 1.5;
+        }
+        .demo-dica b { color: #fbbf24; }
+        .demo-dica__icone { font-size: 17px; line-height: 1.2; }
+        body.sem-dicas .demo-dica { display: none; }
+
+        /* Boas-vindas / passo a passo */
+        .demo-intro {
+            display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;
+        }
+        .demo-intro__passo {
+            padding: 14px; border-radius: 12px;
+            background: rgba(100, 150, 255, 0.06); border: 1px solid var(--border);
+        }
+        .demo-intro__num {
+            display: inline-flex; width: 24px; height: 24px; border-radius: 50%;
+            align-items: center; justify-content: center; font-size: 12px; font-weight: 800;
+            background: var(--accent); color: #fff; margin-bottom: 8px;
+        }
+        .demo-intro__passo strong { display: block; color: #fff; font-size: 14px; margin-bottom: 4px; }
+        .demo-intro__passo p { color: var(--text-mid); font-size: 12.5px; line-height: 1.45; margin: 0; }
+        @media (max-width: 900px) { .demo-intro { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media (max-width: 480px) { .demo-intro { grid-template-columns: 1fr; } }
+
+        /* Formulário rápido de teste */
+        .demo-form { display: grid; grid-template-columns: 2fr 1fr 1fr 1.4fr auto; gap: 10px; align-items: end; }
+        .demo-form .form-group { margin: 0; }
+        .demo-form .btn--primary { width: auto; padding: 11px 18px; font-size: 14px; }
+        @media (max-width: 900px) { .demo-form { grid-template-columns: 1fr 1fr; } .demo-form .btn--primary { grid-column: 1 / -1; } }
+
+        .demo-lista-filtro { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+        .demo-chip {
+            padding: 6px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+            background: rgba(100, 150, 255, 0.08); border: 1px solid var(--border);
+            color: var(--text-mid); cursor: pointer; font-family: inherit;
+        }
+        .demo-chip.ativo { background: rgba(100, 150, 255, 0.25); color: #fff; border-color: rgba(100, 150, 255, 0.55); }
+
+        .demo-plano h4 { color: #fff; margin: 16px 0 6px; font-size: 14.5px; }
+        .demo-plano ul { margin: 0 0 0 18px; color: var(--text-mid); line-height: 1.7; }
+        .demo-plano__cab { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+        .demo-plano__data { color: var(--text-muted); font-size: 12px; }
+
+        .demo-fim {
+            text-align: center; padding: 26px 18px;
+            background: linear-gradient(135deg, rgba(100, 150, 255, 0.14), rgba(52, 211, 153, 0.12));
+        }
+        .demo-fim h3 { color: #fff; font-size: 20px; margin-bottom: 6px; }
+        .demo-fim p { color: var(--text-mid); margin-bottom: 16px; }
+        .demo-fim .btn--primary { width: auto; padding: 12px 26px; text-decoration: none; display: inline-block; }
+
+        .transaction-actions { display: none; }
+        @media (max-width: 768px) {
+            .demo-faixa { position: static; margin: -16px -14px 16px; padding: 10px 12px; }
+            .demo-faixa__texto { font-size: 12.5px; }
+            #btnAlternarDicas, .demo-faixa a[href="index.html"] { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <div id="clientScreen" class="screen layout-wrapper active">
+        <aside class="sidebar">
+            <div class="sidebar__header">
+                <h2>📊 Menu</h2>
+            </div>
+            <nav class="sidebar__nav">
+                <button class="sidebar__nav-item active" data-secao="cli-dashboard">📈 Dashboard</button>
+                <button class="sidebar__nav-item" data-secao="cli-transactions">💳 Transações</button>
+                <button class="sidebar__nav-item" data-secao="cli-goals">🎯 Metas</button>
+                <button class="sidebar__nav-item" data-secao="cli-planning">📋 Planejamento</button>
+                <button class="sidebar__nav-item sidebar__nav-item--mensagens" data-secao="cli-mensagens">
+                    💬 Mensagens
+                    <span id="mensagensBadge" class="mensagens-badge">1</span>
+                </button>
+                <a class="sidebar__nav-item sidebar__nav-item--profile" href="index.html" style="text-decoration:none;">🔐 Entrar</a>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <div class="demo-faixa" role="note">
+                <span class="demo-faixa__selo">Demonstração</span>
+                <span class="demo-faixa__texto">Você está vendo uma conta de exemplo com <b>dados fictícios</b>. Pode clicar e testar à vontade — nada é salvo.</span>
+                <span class="demo-faixa__acoes">
+                    <button type="button" class="btn btn--secondary" id="btnAlternarDicas">🙈 Esconder explicações</button>
+                    <a class="btn btn--secondary" href="index.html">Já tenho conta</a>
+                    <a class="btn btn--primary" href="index.html#criar-conta">Criar minha conta grátis</a>
+                </span>
+            </div>
+
+            <header class="client-header">
+                <h1>👋 Bem-vinda, <span id="clientNameDisplay">Ana</span></h1>
+                <p>Organize a sua vida financeira de forma simples.</p>
+            </header>
+
+            <!-- DASHBOARD CLIENTE -->
+            <section id="cli-dashboard" class="view-section active">
+
+                <div class="card">
+                    <h3>🚀 Como funciona, em 4 passos</h3>
+                    <div class="demo-intro" style="margin-top:12px;">
+                        <div class="demo-intro__passo"><span class="demo-intro__num">1</span><strong>Registre</strong><p>Lance entradas e saídas em segundos — ou importe o extrato do banco.</p></div>
+                        <div class="demo-intro__passo"><span class="demo-intro__num">2</span><strong>Entenda</strong><p>Veja para onde vai o dinheiro, quanto sobra e como você evolui mês a mês.</p></div>
+                        <div class="demo-intro__passo"><span class="demo-intro__num">3</span><strong>Planeje</strong><p>Crie metas (cofrinhos) e receba um planejamento do seu consultor.</p></div>
+                        <div class="demo-intro__passo"><span class="demo-intro__num">4</span><strong>Evolua</strong><p>Ganhe XP, mantenha a sequência, cumpra missões e desbloqueie conquistas.</p></div>
+                    </div>
+                </div>
+
+                <div class="demo-dica"><span class="demo-dica__icone">💡</span><span>Este é o seu <b>placar</b>: nível e XP sobem a cada boa atitude, a <b>sequência</b> conta os dias seguidos registrando, e a <b>saúde do mês</b> é uma nota de 0 a 100 da sua vida financeira.</span></div>
+
+                <!-- GAMIFICAÇÃO — nível/XP, sequência e saúde do mês.
+                     Preenchido por GamificacaoModule (gamificacao.js). -->
+                <div id="gamiHero" class="gami-hero" aria-live="polite"></div>
+
+                <!-- ORDEM DO PAINEL (organizada por pergunta):
+                     1) "Como estou?"  → nível, sequência e saúde (acima)
+                     2) "Meu dinheiro" → resumo, para onde foi, maiores
+                        gastos (seguem o filtro de período) e evolução
+                     3) "Minha jornada" → missões, cofrinhos, conquistas -->
+                <div class="painel-grupo"><span>💰 Seu dinheiro</span></div>
+
+                <div class="demo-dica"><span class="demo-dica__icone">💡</span><span>Troque o <b>período</b> abaixo (este mês, mês passado, 7 dias...) e todos os números desta parte se atualizam: quanto entrou, quanto saiu, <b>para onde foi</b> e os <b>maiores gastos</b>.</span></div>
+
+
+                <div class="card">
+                    <div class="card__header-row">
+                        <h3>📊 Resumo do Período</h3>
+                    </div>
+
+                    <!-- Filtro de período do Dashboard — mesma lógica do
+                         Histórico (Todos/Hoje/7 dias/Este mês/Mês
+                         passado/Personalizado). Ver app.js:
+                         initDashboardFilters()/getFiltroDashboardAtual(). -->
+                    <div class="history-filters dashboard-filters">
+                        <div class="form-group">
+                            <label>Período</label>
+                            <select id="dashPeriodoRapido">
+                                <option value="todos">Todos os lançamentos</option>
+                                <option value="hoje">Hoje</option>
+                                <option value="7dias">Últimos 7 dias</option>
+                                <option value="mes" selected>Este mês</option>
+                                <option value="mes_passado">Mês passado</option>
+                                <option value="personalizado">Personalizado</option>
+                            </select>
+                        </div>
+                        <div class="history-filters__custom-range hidden" id="dashPeriodoPersonalizadoRow">
+                            <div class="form-group">
+                                <label>De</label>
+                                <input type="date" id="dashDataInicio">
+                            </div>
+                            <div class="form-group">
+                                <label>Até</label>
+                                <input type="date" id="dashDataFim">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="resume-grid">
+                        <div class="resume-item receita">
+                            <span class="label">Receitas</span>
+                            <span class="value" id="totalReceitas">R$ 0,00</span>
+                        </div>
+                        <div class="resume-item despesa">
+                            <span class="label">Despesas</span>
+                            <span class="value" id="totalDespesas">R$ 0,00</span>
+                        </div>
+                        <div class="resume-item saldo">
+                            <span class="label">Saldo Disponível</span>
+                            <span class="value" id="saldo">R$ 0,00</span>
+                            <span class="bi-detail" id="saldoAlocadoDetalhe"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card__header-row">
+                        <h3>🧭 Para onde foi o dinheiro</h3>
+                        <span class="card__hint">no período escolhido acima</span>
+                    </div>
+                    <div class="bi-grid">
+                        <div class="bi-item">
+                            <span class="bi-label">🏠 Essenciais</span>
+                            <span class="bi-value" id="biSurvivalCost">R$ 0,00</span>
+                            <span class="bi-detail" id="biSurvivalPct"></span>
+                        </div>
+                        <div class="bi-item">
+                            <span class="bi-label">🎯 Estilo de Vida</span>
+                            <span class="bi-value" id="biLifestyleCost">R$ 0,00</span>
+                            <span class="bi-detail" id="biLifestylePct"></span>
+                        </div>
+                        <div class="bi-item">
+                            <span class="bi-label">💰 Investimentos</span>
+                            <span class="bi-value" id="biInvestments">R$ 0,00</span>
+                            <span class="bi-detail" id="biInvestmentsPct"></span>
+                        </div>
+                        <div class="bi-item">
+                            <span class="bi-label">💳 Dívidas e Financiamentos</span>
+                            <span class="bi-value" id="biDebt">R$ 0,00</span>
+                            <span class="bi-detail" id="biDebtPct"></span>
+                        </div>
+                        <div class="bi-item bi-item--destaque">
+                            <span class="bi-label">📊 Taxa de Poupança</span>
+                            <span class="bi-value" id="biSavingsRate">—</span>
+                            <span class="bi-detail" id="biSavingsRateDetail"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Maiores Gastos do Período — cartões com ícone por
+                     categoria, ver DashboardModule (dashboard.js). -->
+                <div class="card">
+                    <h3>🔎 Maiores Gastos do Período</h3>
+                    <div id="dashTopGastosGrid" class="gasto-icon-grid">
+                        <p class="empty-state">Carregando...</p>
+                    </div>
+                </div>
+
+                <!-- Evolução de receitas x despesas nos últimos 6 meses -->
+                <div class="card" id="gamiEvolucao"></div>
+
+                <div class="painel-grupo"><span>🎮 Sua jornada</span></div>
+
+                <div class="demo-dica"><span class="demo-dica__icone">💡</span><span>Toda semana surgem <b>missões</b> novas que valem XP. Os <b>cofrinhos</b> mostram suas metas enchendo, e as <b>conquistas</b> guardam cada marco. Vá em <b>Transações</b>, registre um gasto e volte aqui para ver o XP subir.</span></div>
+
+
+                <!-- Missões da semana + cofrinhos (metas) lado a lado -->
+                <div class="gami-duplo">
+                    <div class="card" id="gamiMissoes"></div>
+                    <div class="card" id="gamiCofrinhos"></div>
+                </div>
+
+                <!-- Conquistas desbloqueáveis (gamificacao.js) -->
+                <div class="card" id="gamiConquistas"></div>
+            </section>
+
+            <!-- TRANSAÇÕES -->
+            <section id="cli-transactions" class="view-section">
+                <div class="demo-dica"><span class="demo-dica__icone">💡</span><span>Aqui você registra <b>cada entrada e saída</b> — leva poucos segundos. Também dá para <b>importar o extrato do banco</b> (OFX/CSV) e o sistema categoriza sozinho. Cada lançamento vale XP e mantém a sua sequência de dias.</span></div>
+                <div class="card">
+                    <h3>➕ Experimente: registre um gasto</h3>
+                    <form class="demo-form" id="demoForm">
+                        <div class="form-group">
+                            <label>Descrição</label>
+                            <input type="text" id="demoDesc" placeholder="Ex: Almoço" maxlength="60">
+                        </div>
+                        <div class="form-group">
+                            <label>Valor (R$)</label>
+                            <input type="number" id="demoValor" min="0.01" step="0.01" placeholder="35,00" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Tipo</label>
+                            <select id="demoTipo">
+                                <option value="despesa">Despesa</option>
+                                <option value="receita">Receita</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Categoria</label>
+                            <select id="demoCategoria"></select>
+                        </div>
+                        <button type="submit" class="btn btn--primary">Registrar</button>
+                    </form>
+                </div>
+                <div class="card">
+                    <h3>📜 Histórico</h3>
+                    <div class="demo-lista-filtro" id="demoFiltroLista">
+                        <button type="button" class="demo-chip ativo" data-f="todos">Todos</button>
+                        <button type="button" class="demo-chip" data-f="receita">Receitas</button>
+                        <button type="button" class="demo-chip" data-f="despesa">Despesas</button>
+                    </div>
+                    <div id="demoListaTransacoes"></div>
+                </div>
+            </section>
+
+            <!-- METAS -->
+            <section id="cli-goals" class="view-section">
+                <div class="demo-dica"><span class="demo-dica__icone">💡</span><span>Metas são os seus <b>cofrinhos</b>: reserva de emergência, viagem, um curso... Ao registrar um aporte vinculado a uma meta, a barra enche sozinha — e você ganha XP e conquistas.</span></div>
+                <div class="card">
+                    <h3>🎯 Minhas Metas</h3>
+                    <div id="clientMetasList" class="metas-grid"></div>
+                </div>
+            </section>
+
+            <!-- PLANEJAMENTO -->
+            <section id="cli-planning" class="view-section">
+                <div class="demo-dica"><span class="demo-dica__icone">💡</span><span>Com base nos seus números, o <b>consultor monta um planejamento personalizado</b> para você. É só pedir por aqui.</span></div>
+                <div class="card demo-plano">
+                    <div class="demo-plano__cab">
+                        <h3>📊 Plano de ação — reorganizando o orçamento</h3>
+                        <span class="demo-plano__data" id="demoPlanoData"></span>
+                    </div>
+                    <p style="color:var(--text-mid); margin-top:8px;">Ana, você fechou 4 dos últimos 5 meses no azul — ótimo sinal. O próximo passo é proteger esse resultado e acelerar a reserva de emergência.</p>
+                    <h4>✅ O que manter</h4>
+                    <ul>
+                        <li>Aporte fixo de R$ 600 na reserva logo que o salário cair.</li>
+                        <li>Registrar os gastos diariamente — sua sequência está ótima.</li>
+                    </ul>
+                    <h4>🔧 O que ajustar</h4>
+                    <ul>
+                        <li>Delivery e restaurantes somaram ~12% da renda: teto sugerido de R$ 450/mês.</li>
+                        <li>Revisar assinaturas: há 3 serviços de streaming ativos.</li>
+                        <li>Renegociar o plano de celular (economia estimada de R$ 40/mês).</li>
+                    </ul>
+                    <h4>🎯 Próximos 90 dias</h4>
+                    <ul>
+                        <li>Chegar a 75% da reserva de emergência.</li>
+                        <li>Guardar R$ 350/mês para a viagem ao Nordeste.</li>
+                    </ul>
+                </div>
+                <button type="button" class="btn btn--secondary" style="align-self:flex-start;" onclick="demoAviso('Na sua conta, este botão envia um pedido de planejamento ao consultor.')">📩 Solicitar novo planejamento</button>
+            </section>
+
+            <!-- MENSAGENS -->
+            <section id="cli-mensagens" class="view-section">
+                <div class="demo-dica"><span class="demo-dica__icone">💡</span><span>Dúvida sobre um lançamento ou uma categoria? Fale <b>direto com o seu consultor</b> por aqui. Teste enviando uma mensagem.</span></div>
+                <div class="card mensagens-card">
+                    <h3>💬 Fale com o Administrador</h3>
+                    <div id="mensagensLista" class="mensagens-lista"></div>
+                    <form class="mensagens-form" id="demoFormMensagem">
+                        <textarea id="mensagemTexto" rows="3" placeholder="Escreva sua mensagem..." maxlength="500"></textarea>
+                        <button type="submit" class="btn btn--primary">Enviar</button>
+                    </form>
+                    <p class="mensagens-form__dica">Enter envia · Shift+Enter quebra a linha</p>
+                </div>
+            </section>
+
+            <div class="card demo-fim" style="margin-top:20px;">
+                <h3>Gostou? Comece com os seus números.</h3>
+                <p>Crie sua conta em menos de 1 minuto — com e-mail ou Google.</p>
+                <a class="btn btn--primary" href="index.html#criar-conta">Criar minha conta grátis</a>
+            </div>
+        </main>
+    </div>
+</div>
+
+<script>
+// ─── Utilitários mínimos esperados pelo gamificacao.js ───
+var UIModule = {
+    formatCurrency: (v) => (parseFloat(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+    setText: (id, t) => { const e = document.getElementById(id); if (e) e.textContent = t; }
+};
+function escaparHtml(t) {
+    return t == null ? '' : String(t).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+}
+function navegarParaSecaoCliente(id) { mostrarSecao(id); }
+</script>
+<script src="gamificacao.js"></script>
+<script>
+(() => {
+    const R = UIModule.formatCurrency;
+    const hoje = new Date();
+    const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    // created_at no banco é UTC sem fuso — o gamificacao.js espera esse formato.
+    const criadoEm = (d, hora = 12) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), hora, 10).toISOString().replace('Z', '');
+
+    const CATEGORIAS = [
+        { nome: 'Salário', grupo: 'renda', tipo: 'receita' },
+        { nome: 'Freelance', grupo: 'renda', tipo: 'receita' },
+        { nome: 'Aluguel', grupo: 'essencial', tipo: 'despesa' },
+        { nome: 'Mercado', grupo: 'essencial', tipo: 'despesa' },
+        { nome: 'Energia', grupo: 'essencial', tipo: 'despesa' },
+        { nome: 'Internet', grupo: 'essencial', tipo: 'despesa' },
+        { nome: 'Transporte', grupo: 'essencial', tipo: 'despesa' },
+        { nome: 'Farmácia', grupo: 'essencial', tipo: 'despesa' },
+        { nome: 'Restaurante', grupo: 'estilo_de_vida', tipo: 'despesa' },
+        { nome: 'Delivery', grupo: 'estilo_de_vida', tipo: 'despesa' },
+        { nome: 'Streaming', grupo: 'estilo_de_vida', tipo: 'despesa' },
+        { nome: 'Academia', grupo: 'estilo_de_vida', tipo: 'despesa' },
+        { nome: 'Roupas', grupo: 'estilo_de_vida', tipo: 'despesa' },
+        { nome: 'Cinema e shows', grupo: 'estilo_de_vida', tipo: 'despesa' },
+        { nome: 'Reserva de Emergência', grupo: 'investimento', tipo: 'despesa' },
+        { nome: 'Aporte em Investimentos', grupo: 'investimento', tipo: 'despesa' },
+        { nome: 'Parcela do celular', grupo: 'divida', tipo: 'despesa' },
+    ];
+    const cat = (nome) => CATEGORIAS.find(c => c.nome === nome);
+
+    const METAS = [
+        { id: 'm1', nome: 'Reserva de emergência', valor_necessario: 18000, valor_economizado: 11700 },
+        { id: 'm2', nome: 'Viagem para o Nordeste', valor_necessario: 6000, valor_economizado: 2450 },
+        { id: 'm3', nome: 'Notebook novo', valor_necessario: 4500, valor_economizado: 4500 },
+        { id: 'm4', nome: 'Curso de inglês', valor_necessario: 2400, valor_economizado: 600 },
+    ];
+
+    // ─── Dados fictícios: 6 meses + mês atual até hoje ───
+    let seq = 0;
+    const transacoes = [];
+    function add(d, nomeCat, valor, descricao = '', extra = {}) {
+        if (d > hoje) return;
+        const c = cat(nomeCat);
+        transacoes.push({
+            id: 'd' + (++seq), tipo: c.tipo, valor: Math.round(valor * 100) / 100,
+            descricao, data_competencia: iso(d), created_at: criadoEm(d, 9 + (seq % 11)),
+            categorias: { nome: c.nome, grupo: c.grupo }, origem: extra.origem || 'manual', meta_id: extra.meta_id || null
+        });
+    }
+    // Pequena variação determinística (sempre os mesmos números)
+    const vari = (i, base, amp) => base + ((i * 37) % 11 - 5) / 5 * amp;
+
+    for (let m = 5; m >= 0; m--) {
+        const ano = hoje.getFullYear(), mes = hoje.getMonth() - m;
+        const dia = (n) => new Date(ano, mes, n);
+        const i = 6 - m;
+        add(dia(5), 'Salário', 5800, 'Empresa XPTO');
+        if (m % 2 === 1) add(dia(18), 'Freelance', vari(i, 900, 250), 'Projeto de design');
+        add(dia(6), 'Aluguel', 1650);
+        add(dia(10), 'Energia', vari(i, 185, 30));
+        add(dia(10), 'Internet', 119.9);
+        add(dia(6), 'Reserva de Emergência', 600, 'Aporte do mês', { meta_id: 'm1' });
+        if (m <= 3) add(dia(20), 'Aporte em Investimentos', 350, 'Viagem', { meta_id: 'm2' });
+        if (m >= 3) add(dia(22), 'Aporte em Investimentos', 750, 'Notebook', { meta_id: 'm3' });
+        add(dia(15), 'Parcela do celular', 189.9, '8/12');
+        add(dia(7), 'Streaming', 55.9, 'Netflix + Spotify');
+        add(dia(8), 'Academia', 99.9);
+        // Mercado semanal, transporte e lazer
+        [3, 10, 17, 24].forEach((n, k) => add(dia(n), 'Mercado', vari(i + k, 260, 60), k % 2 ? 'Atacadão' : 'Pão de Açúcar'));
+        [2, 9, 16, 23, 29].forEach((n, k) => add(dia(n), 'Transporte', vari(i + k, 48, 15), k % 2 ? 'Uber' : 'Combustível'));
+        [4, 12, 19, 26].forEach((n, k) => add(dia(n), k % 2 ? 'Delivery' : 'Restaurante', vari(i + k, m === 3 ? 170 : 95, 30), k % 2 ? 'iFood' : 'Almoço de domingo'));
+        if (m === 3) add(dia(14), 'Roupas', 780, 'Promoção'); // o mês "no vermelho" da história
+        if (m === 3) add(dia(21), 'Cinema e shows', 420, 'Show');
+        if (m % 3 === 0) add(dia(13), 'Farmácia', vari(i, 85, 20));
+        if (m === 1) add(dia(27), 'Cinema e shows', 120, 'Cinema');
+    }
+    // Registros dos últimos dias → sequência ativa
+    for (let k = 9; k >= 0; k--) {
+        const d = new Date(hoje); d.setDate(d.getDate() - k);
+        add(d, k % 3 ? 'Transporte' : 'Restaurante', 18 + (k * 7) % 25, k % 3 ? 'Ônibus/metrô' : 'Café');
+    }
+    // Um extrato importado (conquista "Automatizado")
+    for (let k = 0; k < 3; k++) add(new Date(hoje.getFullYear(), hoje.getMonth(), 1 + k), 'Mercado', 32 + k * 9, 'Importado do extrato', { origem: 'importacao' });
+
+    // ─── Resumo do período (mesmas regras do dashboard.js) ───
+    function filtroPeriodo(valor) {
+        const y = hoje.getFullYear(), mth = hoje.getMonth();
+        if (valor === 'hoje') return { ini: iso(hoje), fim: iso(hoje) };
+        if (valor === '7dias') { const d = new Date(hoje); d.setDate(d.getDate() - 6); return { ini: iso(d), fim: iso(hoje) }; }
+        if (valor === 'mes') return { ini: iso(new Date(y, mth, 1)), fim: iso(new Date(y, mth + 1, 0)) };
+        if (valor === 'mes_passado') return { ini: iso(new Date(y, mth - 1, 1)), fim: iso(new Date(y, mth, 0)) };
+        return {};
+    }
+    function metricas(lista) {
+        const m = { rec: 0, desp: 0, ess: 0, estilo: 0, inv: 0, div: 0 };
+        lista.forEach(t => {
+            const v = t.valor, g = t.categorias.grupo;
+            if (g === 'transferencia') return;
+            if (t.tipo === 'receita') { m.rec += v; return; }
+            m.desp += v;
+            if (g === 'essencial') m.ess += v; else if (g === 'investimento') m.inv += v;
+            else if (g === 'divida') m.div += v; else m.estilo += v;
+        });
+        m.saldo = m.rec - m.desp;
+        return m;
+    }
+    const ICONES = { 'Mercado': '🛒', 'Aluguel': '🏠', 'Energia': '💡', 'Internet': '📶', 'Transporte': '🚗', 'Farmácia': '💊',
+        'Restaurante': '🍔', 'Delivery': '🍔', 'Streaming': '🎬', 'Academia': '💪', 'Roupas': '👕', 'Cinema e shows': '🎉',
+        'Reserva de Emergência': '💰', 'Aporte em Investimentos': '💰', 'Parcela do celular': '💳' };
+
+    function renderResumo() {
+        const f = filtroPeriodo(document.getElementById('dashPeriodoRapido').value);
+        const lista = transacoes.filter(t => (!f.ini || t.data_competencia >= f.ini) && (!f.fim || t.data_competencia <= f.fim));
+        const m = metricas(lista);
+        UIModule.setText('totalReceitas', R(m.rec));
+        UIModule.setText('totalDespesas', R(m.desp));
+        UIModule.setText('saldo', R(m.saldo));
+        UIModule.setText('saldoAlocadoDetalhe', m.inv > 0 ? `já descontado ${R(m.inv)} em Metas/Investimentos` : '');
+        UIModule.setText('biSurvivalCost', R(m.ess));
+        UIModule.setText('biLifestyleCost', R(m.estilo));
+        UIModule.setText('biInvestments', R(m.inv));
+        UIModule.setText('biDebt', R(m.div));
+        const pct = (v) => m.rec > 0 ? `${((v / m.rec) * 100).toFixed(0)}% da renda` : (v > 0 ? 'sem receitas no período' : '');
+        UIModule.setText('biSurvivalPct', pct(m.ess));
+        UIModule.setText('biLifestylePct', pct(m.estilo));
+        UIModule.setText('biInvestmentsPct', pct(m.inv));
+        UIModule.setText('biDebtPct', pct(m.div));
+        const el = document.getElementById('biSavingsRate');
+        el.classList.remove('bi-value--bom', 'bi-value--atencao', 'bi-value--ruim');
+        if (m.rec <= 0) {
+            el.textContent = '—';
+            UIModule.setText('biSavingsRateDetail', 'registre suas receitas para calcular');
+        } else {
+            const taxa = ((m.saldo + m.inv) / m.rec) * 100;
+            el.textContent = `${taxa.toFixed(0)}%`;
+            el.classList.add(taxa >= 20 ? 'bi-value--bom' : taxa >= 0 ? 'bi-value--atencao' : 'bi-value--ruim');
+            UIModule.setText('biSavingsRateDetail', taxa >= 20 ? 'ótimo — meta de 20% alcançada'
+                : taxa >= 0 ? `faltam ${(20 - taxa).toFixed(0)} p.p. para a meta de 20%` : 'gastou mais do que ganhou');
+        }
+        // Maiores gastos
+        const porCat = {};
+        lista.filter(t => t.tipo === 'despesa').forEach(t => { porCat[t.categorias.nome] = (porCat[t.categorias.nome] || 0) + t.valor; });
+        const top = Object.entries(porCat).sort((a, b) => b[1] - a[1]).slice(0, 5);
+        document.getElementById('dashTopGastosGrid').innerHTML = top.length ? top.map(([nome, v]) => `
+            <div class="gasto-icon-card">
+                <span class="gasto-icon-card__icone">${ICONES[nome] || '🧩'}</span>
+                <div class="gasto-icon-card__corpo">
+                    <span class="gasto-icon-card__nome">${escaparHtml(nome)}</span>
+                    <span class="gasto-icon-card__valor">${R(v)}</span>
+                    ${m.rec > 0 ? `<span class="gasto-icon-card__percentual">${((v / m.rec) * 100).toFixed(1)}% da renda</span>` : ''}
+                </div>
+            </div>`).join('') : '<p class="empty-state">Nenhuma despesa neste período.</p>';
+    }
+
+    // ─── Transações ───
+    const GRUPO_LABEL = { essencial: 'Essencial', estilo_de_vida: 'Estilo de Vida', investimento: 'Investimento', divida: 'Dívida/Financiamento', renda: 'Renda' };
+    let filtroLista = 'todos';
+    function renderTransacoes() {
+        const lista = transacoes.slice()
+            .filter(t => filtroLista === 'todos' || t.tipo === filtroLista)
+            .sort((a, b) => b.data_competencia.localeCompare(a.data_competencia) || b.created_at.localeCompare(a.created_at))
+            .slice(0, 30);
+        document.getElementById('demoListaTransacoes').innerHTML = lista.map(t => `
+            <div class="transaction-item ${t.tipo}">
+                <div class="transaction-info">
+                    <div class="transaction-description">${escaparHtml(t.categorias.nome)}${t.descricao ? ' · ' + escaparHtml(t.descricao) : ''}</div>
+                    <div class="transaction-category">${GRUPO_LABEL[t.categorias.grupo] || ''}${t.origem === 'importacao' ? ' · 📥 importado' : ''}</div>
+                    <div class="transaction-date">${new Date(t.data_competencia + 'T00:00:00').toLocaleDateString('pt-BR')}</div>
+                </div>
+                <div class="transaction-value-actions">
+                    <div class="transaction-value ${t.tipo}">${t.tipo === 'receita' ? '+' : '−'} ${R(t.valor)}</div>
+                </div>
+            </div>`).join('');
+    }
+    function preencherCategorias() {
+        const tipo = document.getElementById('demoTipo').value;
+        const padrao = tipo === 'despesa' ? 'Restaurante' : 'Freelance';
+        document.getElementById('demoCategoria').innerHTML = CATEGORIAS.filter(c => c.tipo === tipo)
+            .map(c => `<option value="${escaparHtml(c.nome)}"${c.nome === padrao ? ' selected' : ''}>${escaparHtml(c.nome)}</option>`).join('');
+    }
+
+    // ─── Metas ───
+    function renderMetas() {
+        document.getElementById('clientMetasList').innerHTML = METAS.map(g => {
+            const p = Math.min(100, (g.valor_economizado / g.valor_necessario) * 100);
+            const cor = p >= 100 ? '#34d399' : p >= 50 ? '#6495ff' : '#fbbf24';
+            return `
+            <div class="meta-card">
+                <div class="meta-header"><div><div class="meta-nome">${escaparHtml(g.nome)}${p >= 100 ? ' ✅' : ''}</div></div></div>
+                <div class="meta-progress-bar"><div class="meta-progress-fill" style="width:${p}%; background:${cor};"></div></div>
+                <div class="meta-info">
+                    <div class="meta-info-item"><div class="meta-info-label">Economizado</div><div class="meta-info-value">${R(g.valor_economizado)}</div></div>
+                    <div class="meta-info-item"><div class="meta-info-label">Necessário</div><div class="meta-info-value">${R(g.valor_necessario)}</div></div>
+                    <div class="meta-info-item"><div class="meta-info-label">Progresso</div><div class="meta-info-value">${p.toFixed(1)}%</div></div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    // ─── Mensagens ───
+    const agoraMenos = (dias, h, min) => { const d = new Date(hoje); d.setDate(d.getDate() - dias); d.setHours(h, min, 0, 0); return d; };
+    const mensagens = [
+        { r: 'admin', t: 'Oi, Ana! Vi que você fechou o mês no azul de novo. Parabéns! 🎉', d: agoraMenos(3, 10, 12) },
+        { r: 'cliente', t: 'Obrigada! Uma dúvida: a parcela do celular entra como dívida ou como essencial?', d: agoraMenos(3, 10, 40) },
+        { r: 'admin', t: 'Como dívida/financiamento. Assim ela aparece separada e não distorce o seu custo de vida. Faltam só 4 parcelas!', d: agoraMenos(3, 11, 5) },
+        { r: 'admin', t: 'Seu novo planejamento já está disponível na aba Planejamento. 😉', d: agoraMenos(0, 9, 30) },
+    ];
+    function renderMensagens() {
+        let ultimoDia = '';
+        document.getElementById('mensagensLista').innerHTML = mensagens.map(m => {
+            const dia = m.d.toDateString() === hoje.toDateString() ? 'Hoje' : m.d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' });
+            const sep = dia !== ultimoDia ? `<div class="mensagem-dia">${dia}</div>` : '';
+            ultimoDia = dia;
+            const hora = m.d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+            return `${sep}<div class="mensagem-bolha mensagem-bolha--${m.r}">
+                <p class="mensagem-bolha__texto">${escaparHtml(m.t)}</p>
+                <span class="mensagem-bolha__hora">${m.r === 'admin' ? 'Consultor · ' : ''}${hora}${m.r === 'cliente' ? ' · ✓ Lida' : ''}</span>
+            </div>`;
+        }).join('');
+        const lista = document.getElementById('mensagensLista');
+        lista.scrollTop = lista.scrollHeight;
+    }
+
+    // ─── Navegação ───
+    window.mostrarSecao = function (id) {
+        document.querySelectorAll('.view-section').forEach(s => s.classList.toggle('active', s.id === id));
+        document.querySelectorAll('.sidebar__nav-item[data-secao]').forEach(b => b.classList.toggle('active', b.dataset.secao === id));
+        if (id === 'cli-mensagens') document.getElementById('mensagensBadge').classList.add('hidden');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        document.querySelector('.main-content').scrollTop = 0;
+        if (id === 'cli-dashboard') renderTudo(); // redesenha o gráfico com a largura certa
+    };
+    window.demoAviso = function (msg) {
+        const d = document.createElement('div');
+        d.className = 'message message--info';
+        d.textContent = msg;
+        d.style.cssText = 'position:fixed;top:20px;right:20px;max-width:min(420px,calc(100vw - 40px));padding:14px 18px;border-radius:8px;z-index:2147483000;background:rgba(26,26,46,0.97);border:1px solid rgba(100,150,255,0.35);color:#e0e0e0;font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.5);';
+        document.body.appendChild(d);
+        setTimeout(() => d.remove(), 4200);
+    };
+
+    function renderTudo() {
+        renderResumo();
+        GamificacaoModule.render(transacoes, METAS, 'demo');
+    }
+
+    document.querySelectorAll('.sidebar__nav-item[data-secao]').forEach(b => b.addEventListener('click', () => mostrarSecao(b.dataset.secao)));
+    document.getElementById('dashPeriodoRapido').addEventListener('change', renderResumo);
+    document.getElementById('demoTipo').addEventListener('change', preencherCategorias);
+    document.getElementById('demoFiltroLista').addEventListener('click', (e) => {
+        const b = e.target.closest('.demo-chip'); if (!b) return;
+        filtroLista = b.dataset.f;
+        document.querySelectorAll('#demoFiltroLista .demo-chip').forEach(x => x.classList.toggle('ativo', x === b));
+        renderTransacoes();
+    });
+    document.getElementById('demoForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const valor = parseFloat(document.getElementById('demoValor').value);
+        if (!(valor > 0)) return;
+        const agora = new Date();
+        const c = cat(document.getElementById('demoCategoria').value);
+        transacoes.push({
+            id: 'd' + (++seq), tipo: c.tipo, valor, descricao: document.getElementById('demoDesc').value.trim(),
+            data_competencia: iso(agora), created_at: agora.toISOString().replace('Z', ''),
+            categorias: { nome: c.nome, grupo: c.grupo }, origem: 'manual', meta_id: null
+        });
+        e.target.reset(); preencherCategorias();
+        renderTransacoes();
+        renderTudo();
+        demoAviso('✅ Lançamento registrado! Veja no Dashboard como o resumo, as missões e o XP mudaram.');
+    });
+    const campoMsg = document.getElementById('mensagemTexto');
+    campoMsg.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('demoFormMensagem').requestSubmit(); }
+    });
+    document.getElementById('demoFormMensagem').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const texto = campoMsg.value.trim(); if (!texto) return;
+        mensagens.push({ r: 'cliente', t: texto, d: new Date() });
+        campoMsg.value = '';
+        renderMensagens();
+        setTimeout(() => {
+            mensagens.push({ r: 'admin', t: 'Esta é uma demonstração 🙂 Na sua conta, o seu consultor recebe um aviso e responde por aqui mesmo.', d: new Date() });
+            renderMensagens();
+        }, 1200);
+    });
+    document.getElementById('btnAlternarDicas').addEventListener('click', (e) => {
+        const esconder = !document.body.classList.contains('sem-dicas');
+        document.body.classList.toggle('sem-dicas', esconder);
+        e.currentTarget.textContent = esconder ? '💡 Mostrar explicações' : '🙈 Esconder explicações';
+    });
+
+    // Zera o estado salvo da demo: a 1ª renderização não comemora nada
+    // (é a "primeira visita"); lançamentos feitos aqui mostram +XP.
+    try { localStorage.removeItem('mentorfin_gami_demo'); } catch (_) {}
+
+    UIModule.setText('demoPlanoData', 'enviado em ' + agoraMenos(0, 9, 30).toLocaleDateString('pt-BR'));
+    preencherCategorias();
+    renderTransacoes();
+    renderMetas();
+    renderMensagens();
+    renderTudo();
+})();
+</script>
+</body>
+</html>

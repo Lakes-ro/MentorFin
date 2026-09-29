@@ -2,23 +2,19 @@
  * GOALS.JS - LÓGICA DE METAS (painel do CLIENTE)
  * ================================================
  * ATUALIZAÇÃO — EDITAR/EXCLUIR META (CLIENTE):
- * Antes, o cliente conseguia CRIAR uma meta mas nunca editar/excluir —
- * só o admin tinha essa opção. Agora cada cartão tem botões ✏️/🗑️, que
- * abrem o modal #modalEditarMeta (client.html/index.html) — ver
- * abrirModalEditarMeta()/handleSalvarEdicaoMeta()/handleExcluirMeta()
- * no final deste ficheiro (funções globais, fora do IIFE).
+ * Cada cartão tem botões ✏️/🗑️, que abrem o modal #modalEditarMeta
+ * (client.html/index.html) — ver abrirModalEditarMeta()/
+ * handleSalvarEdicaoMeta()/handleExcluirMeta() no final deste ficheiro
+ * (funções globais, fora do IIFE).
  *
  * Os dados de cada meta ficam gravados como data-attributes no
  * próprio cartão (data-id/nome/necessario/economizado) — assim o
- * modal de edição não depende de nenhum cache interno do módulo (útil
- * porque renderGoals() aqui é chamado com uma lista EXPLÍCITA vinda de
- * loadClientGoals(), sem nunca preencher `allGoals`).
+ * modal de edição não depende de nenhum cache interno do módulo.
  *
  * NOTA: o "valor_economizado" já é sincronizado automaticamente pelo
  * banco quando uma transação de Investimento é vinculada à meta (ver
- * comentário no topo de dashboard.js sobre os triggers
- * trg_validar_meta_id/trg_sync_valor_economizado_meta) — a edição
- * manual aqui serve para ajustes pontuais, sem afetar esse mecanismo.
+ * triggers trg_validar_meta_id/trg_sync_valor_economizado_meta) — a
+ * edição manual aqui serve para ajustes pontuais.
  */
 
 const GoalsModule = (() => {
@@ -136,7 +132,7 @@ const GoalsModule = (() => {
                 .map(g => formatGoal(g))
                 .join('');
 
-            UIModule.setHTML(containerId, html || '<p class="empty-state">Nenhuma meta</p>');
+            UIModule.setHTML(containerId, html || '<p class="empty-state">Nenhuma meta ainda. Clique em "+ Adicionar Meta" para criar a primeira.</p>');
             ligarBotoesDeAcaoDaMeta(container);
         },
 
@@ -146,7 +142,6 @@ const GoalsModule = (() => {
 
 // ══════════════════════════════════════════════════════════════
 // EDITAR / EXCLUIR META (CLIENTE) — funções globais, fora do IIFE
-// (mesmo padrão de outras ações "ligar após render" já usadas no app)
 // ══════════════════════════════════════════════════════════════
 
 function ligarBotoesDeAcaoDaMeta(container) {
@@ -206,7 +201,7 @@ async function handleSalvarEdicaoMeta() {
 }
 
 async function handleExcluirMeta(id, nome) {
-    if (!confirm(`Tens a certeza que queres excluir a meta "${nome}"? Esta ação não pode ser desfeita.`)) return;
+    if (!confirm(`Tem certeza que deseja excluir a meta "${nome}"? Esta ação não pode ser desfeita.`)) return;
 
     try {
         await GoalsModule.deleteGoal(id);

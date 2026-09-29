@@ -1,19 +1,16 @@
 /**
  * CONFIG.JS - CONFIGURAÇÃO CENTRALIZADA
  * ================================================
- * ALTERAÇÃO CRÍTICA: persistSession agora é TRUE.
+ * persistSession: true — o sistema tem duas páginas de entrada
+ * separadas (index.html/client.html para clientes, admin.html para o
+ * administrador). Com a sessão gravada em localStorage ela sobrevive à
+ * troca de página e a recarregamentos, permitindo que auth.js
+ * (checkSession) restaure o usuário autenticado.
  *
- * Motivo: o sistema tem duas páginas de entrada separadas
- * (index.html/client.html para clientes, admin.html para o
- * administrador). Com persistSession:false a sessão do Supabase
- * vivia só em memória da aba — ao navegar de uma página para
- * outra (ex: login em index.html → redirect para admin.html),
- * a sessão se perdia e admin.js redirecionava de volta ao login,
- * causando um novo loop.
- *
- * Com persistSession:true a sessão é gravada em localStorage e
- * sobrevive à troca de página e a recarregamentos, permitindo
- * que auth.js (checkSession) restaure o utilizador autenticado.
+ * ATUALIZAÇÃO — SEM E-MAIL DO ADMIN NO CÓDIGO:
+ * O papel de administrador agora vem do banco (usuarios_perfis, perfil
+ * 'admin' — ver auth.js e admin.js). O e-mail do admin foi retirado
+ * daqui: este arquivo é público (qualquer visitante consegue lê-lo).
  */
 
 const CONFIG = {
@@ -31,11 +28,6 @@ const CONFIG = {
         PLANEJAMENTOS:   'planejamentos',
         PLANO_DE_CONTAS: 'plano_de_contas',
         CATEGORIAS:      'categorias'
-    },
-
-    ADMIN: {
-        EMAIL: 'rogeralmeida15000@gmail.com',
-        ID:    'b676a2e4-15a3-41b8-825f-96776c45f454'
     },
 
     UI: {

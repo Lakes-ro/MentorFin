@@ -2,7 +2,8 @@
  * DASHBOARDS.JS — Módulo: Dashboards dos Clientes (admin.html)
  * Padrão: script global. Sem import/export.
  * Depende de: supabaseClient, allClientes, loadAllClientes,
- *             openModal, closeModal, showToast, formatCurrency
+ *             openModal, closeModal, showToast, formatCurrency,
+ *             ligarBuscaClientes/aplicarBuscaClientes/textoBuscaCliente
  *             (admin.js), calcularDRE/renderDRE/calcularBalancete/
  *             renderBalancete/exportarParaPDF/abrirBalanceteAmpliado
  *             (contabilidade.js — carregado ANTES deste ficheiro).
@@ -16,6 +17,9 @@
  * dashboard aberto no momento — usado pelos botões de exportar PDF e
  * pelo Balancete Ampliado (contabilidade.js), evitando refazer a
  * consulta ao banco pra cada uma dessas ações.
+ *
+ * ATUALIZAÇÃO — BUSCA: campo "Buscar cliente" acima da grade filtra
+ * os cards por apelido, nome, e-mail, telefone ou CPF (ver admin.js).
  */
 
 let chartDonut = null;
@@ -41,6 +45,7 @@ function initDashboards() {
   });
   initModalDashboardTabs();
   initFiltroPeriodoDashboard();
+  ligarBuscaClientes('dashboards-busca', 'dashboards-grid', 'dashboards-busca-contador');
   renderDashboards();
 }
 
@@ -61,13 +66,11 @@ async function renderDashboards() {
 
   grid.innerHTML = allClientes.map(c => {
     const risco = riscos[c.id] || classificarRisco([]);
-    // O badge de risco saiu de dentro da linha do nome e passou a ter
-    // uma FAIXA PRÓPRIA, sempre no mesmo lugar em todos os cards. Antes
-    // ele dividia a linha com o nome: nome curto → badge à direita na
-    // 1ª linha; nome longo → badge empurrado para baixo. Resultado: em
-    // cada card o selo aparecia numa altura diferente.
+    // O badge de risco tem uma FAIXA PRÓPRIA, sempre no mesmo lugar em
+    // todos os cards (antes dividia a linha com o nome e mudava de
+    // altura conforme o tamanho do nome).
     return `
-    <div class="card card--uniforme">
+    <div class="card card--uniforme" data-busca="${textoBuscaCliente(c)}">
       <div class="card-identidade">
         <div class="card-identidade__texto">
           <p class="card-name dado-sensivel">${escaparHtml(c.nome)}</p>
@@ -91,6 +94,9 @@ async function renderDashboards() {
   }).join('');
 
   if (typeof aplicarPrivacidadeNaGrade === 'function') aplicarPrivacidadeNaGrade(grid);
+
+  // Mantém o filtro digitado quando a grade é redesenhada.
+  aplicarBuscaClientes('dashboards-busca', 'dashboards-grid', 'dashboards-busca-contador');
 
   grid.querySelectorAll('.btn-card.ver-dashboard').forEach(btn => {
     btn.addEventListener('click', () => abrirDashboard(btn.dataset.id, btn.dataset.nome));
@@ -153,10 +159,8 @@ function classificarRisco(transacoes) {
 
 async function abrirDashboard(clienteId, nome) {
   document.getElementById('modal-dashboard-title').textContent = `📊 Dashboard: ${nome}`;
-  // ⚠️ "kpi-dividas" incluído aqui — antes ficava de fora desta lista e
-  // o valor do CLIENTE ANTERIOR continuava visível enquanto os outros
-  // 4 KPIs já mostravam "..." esperando a busca nova terminar, dando a
-  // falsa impressão de dado incorreto/tela travada ao trocar de cliente.
+  // "kpi-dividas" incluído aqui — sem ele o valor do CLIENTE ANTERIOR
+  // continuava visível enquanto a busca nova terminava.
   ['kpi-sobrevivencia','kpi-estilo','kpi-investimentos','kpi-dividas','kpi-poupanca'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.textContent = '...';
@@ -168,8 +172,7 @@ async function abrirDashboard(clienteId, nome) {
   if (listaEl)  listaEl.innerHTML = '<p class="empty-state">Carregando...</p>';
 
   // Sempre volta pra aba "Resumo" ao abrir um novo cliente, e limpa o
-  // conteúdo anterior de DRE/Balancete (evita mostrar por um instante
-  // os números do cliente anterior enquanto a consulta nova carrega).
+  // conteúdo anterior de DRE/Balancete.
   ativarAbaModalDashboard('resumo');
   document.getElementById('dre-container').innerHTML = '<p class="empty-state">Carregando...</p>';
   document.getElementById('balancete-container').innerHTML = '<p class="empty-state">Carregando...</p>';
@@ -179,24 +182,41 @@ async function abrirDashboard(clienteId, nome) {
   if (chartDonut) { chartDonut.destroy(); chartDonut = null; }
   if (chartBar)   { chartBar.destroy();   chartBar   = null; }
 
-  const { data: transacoes, error } = await supabaseClient
-    .from('transacoes')
-    .select('valor, tipo, descricao, data_competencia, categorias(nome, grupo)')
-    .eq('client_id', clienteId)
-    .order('data_competencia', { ascending: false });
+  ['dash-engajamento', 'dash-503020'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '<p class="empty-state">Carregando...</p>';
+  });
+
+  // Transações (com as colunas que a gamificação usa) + metas, em paralelo
+  const [{ data: transacoes, error }, { data: metas }] = await Promise.all([
+    supabaseClient
+      .from('transacoes')
+      .select('valor, tipo, descricao, data_competencia, created_at, meta_id, origem, categorias(nome, grupo)')
+      .eq('client_id', clienteId)
+      .order('data_competencia', { ascending: false }),
+    supabaseClient
+      .from('metas')
+      .select('id, nome, valor_necessario, valor_economizado')
+      .eq('client_id', clienteId)
+  ]);
 
   if (error) { showToast('Erro ao carregar dados: ' + error.message, 'error'); return; }
 
   dashboardContextoAtual = {
     transacoes:      transacoes || [],
     transacoesTodas: transacoes || [],
+    metas:           metas || [],
     clienteNome:     nome,
     periodoLabel:    'Todos os lançamentos'
   };
 
-  // Ao trocar de cliente o filtro volta para "Todos os lançamentos" —
-  // manter o período do cliente anterior seria a forma mais fácil de
-  // olhar um número vazio e achar que o cliente não tem lançamento.
+  // Blocos que olham o histórico INTEIRO (não mudam com o filtro de período)
+  try { renderEngajamentoCliente(dashboardContextoAtual.transacoesTodas, dashboardContextoAtual.metas); }
+  catch (e) { console.error('❌ renderEngajamentoCliente:', e); }
+  try { renderEvolucaoAdmin(dashboardContextoAtual.transacoesTodas); }
+  catch (e) { console.error('❌ renderEvolucaoAdmin:', e); }
+
+  // Ao trocar de cliente o filtro volta para "Todos os lançamentos".
   resetarFiltroPeriodoDashboard();
   aplicarPeriodoDashboard();
 }
@@ -207,10 +227,9 @@ async function abrirDashboard(clienteId, nome) {
 
 /**
  * Converte o preset escolhido em um intervalo [inicio, fim] de datas
- * (strings AAAA-MM-DD, comparáveis direto com data_competencia, que já
- * vem nesse formato do banco — sem converter para Date, o que evitaria
- * o clássico erro de fuso horário deslocando o dia 01 para o dia 31 do
- * mês anterior).
+ * (strings AAAA-MM-DD, comparáveis direto com data_competencia — sem
+ * converter para Date, o que evita o erro de fuso horário deslocando o
+ * dia 01 para o dia 31 do mês anterior).
  */
 function calcularIntervaloPeriodoDashboard(periodo) {
   const hoje = new Date();
@@ -324,8 +343,7 @@ function initFiltroPeriodoDashboard() {
 function calcularEExibir(transacoes) {
   // Transferências internas (grupo 'transferencia') não são receita
   // nem despesa de verdade — dinheiro só mudou de lugar. Filtradas
-  // FORA antes de qualquer cálculo, para não inflar nem distorcer
-  // nenhuma métrica abaixo (mesma regra do dashboard.js do cliente).
+  // FORA antes de qualquer cálculo (mesma regra do dashboard.js do cliente).
   const semTransferencias = transacoes.filter(t => t.categorias?.grupo !== 'transferencia');
 
   const receitas = semTransferencias.filter(t => t.tipo === 'receita');
@@ -351,15 +369,38 @@ function calcularEExibir(transacoes) {
 
   const estiloDeVida = Math.max(0, totalDespesa - custoSobrevivencia - aportesInvestimento - custoDivida);
   const saldo        = totalReceita - totalDespesa;
-  const taxaPoupanca  = totalReceita > 0 ? Math.max(0, (saldo / totalReceita) * 100) : 0;
+  // Taxa de poupança REAL — negativa quando o cliente gasta mais do que
+  // ganha (antes era cortada em 0%, escondendo justamente o pior caso).
+  const taxaPoupanca  = totalReceita > 0 ? (saldo / totalReceita) * 100 : 0;
 
   document.getElementById('kpi-sobrevivencia').textContent  = formatCurrency(custoSobrevivencia);
   document.getElementById('kpi-estilo').textContent         = formatCurrency(estiloDeVida);
   document.getElementById('kpi-investimentos').textContent  = formatCurrency(aportesInvestimento);
   document.getElementById('kpi-dividas').textContent         = formatCurrency(custoDivida);
-  document.getElementById('kpi-poupanca').textContent       = taxaPoupanca.toFixed(1) + '%';
 
-  renderDonut(custoSobrevivencia, estiloDeVida, aportesInvestimento);
+  const kpiPoupanca = document.getElementById('kpi-poupanca');
+  if (kpiPoupanca) {
+    kpiPoupanca.textContent = totalReceita > 0 ? `${taxaPoupanca.toFixed(1).replace('.', ',')}%` : '—';
+    kpiPoupanca.classList.toggle('kpi-value--negativo', taxaPoupanca < 0);
+  }
+
+  // Contexto de cada KPI: quanto representa da renda e a referência
+  const pct = (v) => totalReceita > 0 ? (v / totalReceita) * 100 : null;
+  preencherSubKpi('kpi-sobrevivencia-sub', pct(custoSobrevivencia), 'até 50%', p => p <= 50);
+  preencherSubKpi('kpi-estilo-sub',        pct(estiloDeVida),       'até 30%', p => p <= 30);
+  preencherSubKpi('kpi-investimentos-sub', pct(aportesInvestimento),'10% ou mais', p => p >= 10);
+  preencherSubKpi('kpi-dividas-sub',       pct(custoDivida),        'até 10%', p => p <= 10);
+  const subPoup = document.getElementById('kpi-poupanca-sub');
+  if (subPoup) {
+    subPoup.textContent = totalReceita <= 0
+      ? 'Sem receitas no período'
+      : saldo < 0 ? `Gastou ${formatCurrency(-saldo)} a mais do que recebeu` : `Sobrou ${formatCurrency(saldo)} · ideal 20%+`;
+    subPoup.className = 'kpi-sub ' + (totalReceita <= 0 ? '' : saldo < 0 ? 'kpi-sub--ruim' : taxaPoupanca >= 20 ? 'kpi-sub--bom' : 'kpi-sub--atencao');
+  }
+
+  render503020({ totalReceita, custoSobrevivencia, estiloDeVida, aportesInvestimento, custoDivida, saldo });
+
+  renderDonut(custoSobrevivencia, estiloDeVida, aportesInvestimento, custoDivida);
 
   const categoriaMap = {};
   despesas.forEach(t => {
@@ -379,27 +420,39 @@ function calcularEExibir(transacoes) {
   });
 }
 
-function renderDonut(essencial, estiloVida, investimento) {
+// Cores validadas para daltonismo sobre o fundo escuro do admin
+// (skill dataviz): ordem fixa essencial → estilo → investimento → dívida.
+const CORES_GRUPOS = { essencial: '#d9506e', estilo: '#a88a22', investimento: '#1f9d8a', divida: '#8b6cf0' };
+
+function renderDonut(essencial, estiloVida, investimento, divida = 0) {
   const ctx = document.getElementById('chart-donut');
   if (!ctx) return;
-  // ⚠️ "Canvas is already in use": trocar o período redesenha os
-  // gráficos, e o Chart.js recusa reutilizar um <canvas> que ainda tem
-  // instância viva. A destruição tem de acontecer AQUI (e não só ao
-  // abrir o modal), porque agora o redesenho acontece várias vezes com
-  // o mesmo modal aberto.
+  // "Canvas is already in use": trocar o período redesenha os gráficos,
+  // e o Chart.js recusa reutilizar um <canvas> com instância viva.
   if (chartDonut) { chartDonut.destroy(); chartDonut = null; }
+
+  const fatias = [
+    { label: 'Essencial',      valor: essencial,    cor: CORES_GRUPOS.essencial },
+    { label: 'Estilo de Vida', valor: estiloVida,   cor: CORES_GRUPOS.estilo },
+    { label: 'Investimentos',  valor: investimento, cor: CORES_GRUPOS.investimento },
+    { label: 'Dívidas',        valor: divida,       cor: CORES_GRUPOS.divida }
+  ].filter(f => f.valor > 0);
+  const total = fatias.reduce((s, f) => s + f.valor, 0);
+  if (!total) return;
+  const pctTxt = (v) => `${((v / total) * 100).toFixed(0)}%`;
+
   chartDonut = new Chart(ctx, {
     type: 'doughnut',
     data: {
-      labels: ['Essencial', 'Estilo de Vida', 'Investimentos'],
-      datasets: [{ data: [essencial || 0.001, estiloVida || 0.001, investimento || 0.001],
-        backgroundColor: ['#ff6384', '#f5d623', '#00f5a0'], borderWidth: 0, hoverOffset: 6 }]
+      labels: fatias.map(f => `${f.label} · ${pctTxt(f.valor)}`),
+      datasets: [{ data: fatias.map(f => f.valor), backgroundColor: fatias.map(f => f.cor),
+        borderColor: '#0e1512', borderWidth: 2, hoverOffset: 6 }]
     },
     options: {
       responsive: true, maintainAspectRatio: false, cutout: '65%',
       plugins: {
-        legend: { position: 'bottom', labels: { color: '#6b9e84', font: { size: 11 }, padding: 12, usePointStyle: true } },
-        tooltip: { callbacks: { label: ctx => ` ${formatCurrency(ctx.parsed)}` } }
+        legend: { position: 'bottom', labels: { color: '#9fb8ab', font: { size: 11 }, padding: 12, usePointStyle: true } },
+        tooltip: { callbacks: { label: c => ` ${fatias[c.dataIndex].label}: ${formatCurrency(c.parsed)} (${pctTxt(c.parsed)})` } }
       }
     }
   });
@@ -414,16 +467,19 @@ function renderBarChart(topCats) {
     data: {
       labels: topCats.map(([cat]) => cat),
       datasets: [{ label: 'Valor (R$)', data: topCats.map(([,val]) => val),
-        backgroundColor: '#4263eb', borderRadius: 4, borderSkipped: false }]
+        backgroundColor: '#5b7cf0', borderRadius: 4, borderSkipped: false, maxBarThickness: 18 }]
     },
     options: {
       indexAxis: 'y', responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { labels: { color: '#6b9e84', font: { size: 11 } } },
-        tooltip: { callbacks: { label: ctx => ` ${formatCurrency(ctx.parsed.x)}` } }
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => {
+          const total = ctx.dataset.data.reduce((a, b) => a + b, 0) || 1;
+          return ` ${formatCurrency(ctx.parsed.x)} · ${((ctx.parsed.x / total) * 100).toFixed(0)}% do top 8`;
+        } } }
       },
       scales: {
-        x: { ticks: { color: '#3d6352', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        x: { ticks: { color: '#6b9e84', font: { size: 10 }, callback: v => v >= 1000 ? `${(v / 1000).toLocaleString('pt-BR')} mil` : v.toLocaleString('pt-BR') }, grid: { color: 'rgba(255,255,255,0.04)' } },
         y: { ticks: { color: '#6b9e84', font: { size: 11 } }, grid: { display: false } }
       }
     }
@@ -457,14 +513,183 @@ function renderAnalise(totalReceita, totalDespesa, custoSobrevivencia, estiloDeV
 }
 
 // ══════════════════════════════════════════════════════════════
+// CONTEXTO DOS KPIs, RÉGUA 50/30/20, ENGAJAMENTO E EVOLUÇÃO
+// ══════════════════════════════════════════════════════════════
+
+let chartEvolucao = null;
+
+/** Linha pequena sob cada KPI: "42% da renda · ref. até 50%", com ✓/⚠. */
+function preencherSubKpi(id, pct, referencia, dentroDaReferencia) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (pct === null) { el.textContent = 'Sem receitas no período'; el.className = 'kpi-sub'; return; }
+  const ok = dentroDaReferencia(pct);
+  el.textContent = `${ok ? '✓' : '⚠'} ${pct.toFixed(0)}% da renda · ref. ${referencia}`;
+  el.className = `kpi-sub ${ok ? 'kpi-sub--bom' : 'kpi-sub--atencao'}`;
+}
+
+/**
+ * Régua 50/30/20 (+ dívidas): quanto de cada real que entrou foi para
+ * cada destino, com a referência marcada na barra. Escala da barra:
+ * 0–100% da renda.
+ */
+function render503020(m) {
+  const el = document.getElementById('dash-503020');
+  if (!el) return;
+
+  if (m.totalReceita <= 0) {
+    el.innerHTML = `<h4>📏 Para onde foi a renda</h4><p class="empty-state">Sem receitas lançadas neste período — não há como calcular a distribuição.</p>`;
+    return;
+  }
+
+  const r = m.totalReceita;
+  const guardado = m.aportesInvestimento + Math.max(0, m.saldo);
+  const linhas = [
+    { nome: 'Essenciais',             valor: m.custoSobrevivencia, ref: 50, tipo: 'max', cor: CORES_GRUPOS.essencial,    dica: 'moradia, contas, mercado, saúde, transporte' },
+    { nome: 'Estilo de vida',         valor: m.estiloDeVida,       ref: 30, tipo: 'max', cor: CORES_GRUPOS.estilo,       dica: 'lazer, delivery, compras, assinaturas' },
+    { nome: 'Guardado / investido',   valor: guardado,             ref: 20, tipo: 'min', cor: CORES_GRUPOS.investimento, dica: 'aportes + o que sobrou no período' },
+    { nome: 'Dívidas',                valor: m.custoDivida,        ref: 10, tipo: 'max', cor: CORES_GRUPOS.divida,       dica: 'parcelas, empréstimos, financiamentos' }
+  ];
+
+  el.innerHTML = `
+    <div class="regua-topo">
+      <h4>📏 Para onde foi a renda</h4>
+      <span class="regua-legenda"><i class="regua-legenda__marca"></i> referência</span>
+    </div>
+    ${linhas.map(l => {
+      const pct = (l.valor / r) * 100;
+      const ok  = l.tipo === 'max' ? pct <= l.ref : pct >= l.ref;
+      const refTxt = l.tipo === 'max' ? `até ${l.ref}%` : `${l.ref}% ou mais`;
+      return `
+        <div class="regua-linha">
+          <div class="regua-linha__rotulo">
+            <span class="regua-linha__nome">${l.nome}</span>
+            <span class="regua-linha__dica">${l.dica}</span>
+          </div>
+          <div class="regua-linha__barra" title="${formatCurrency(l.valor)} de ${formatCurrency(r)}">
+            <div class="regua-linha__preenchimento" style="width:${Math.min(pct, 100)}%; background:${l.cor}"></div>
+            <div class="regua-linha__marca" style="left:${l.ref}%"></div>
+          </div>
+          <div class="regua-linha__valor ${ok ? 'regua--ok' : 'regua--fora'}">
+            <strong>${pct.toFixed(0)}%</strong>
+            <span>${ok ? '✓' : '⚠'} ${refTxt}</span>
+          </div>
+        </div>`;
+    }).join('')}
+  `;
+}
+
+/**
+ * Engajamento do cliente (histórico inteiro): nível, sequência, último
+ * lançamento, saúde do mês, missões e conquistas — mesmos números que o
+ * cliente vê no painel dele (GamificacaoModule.calcular).
+ */
+function renderEngajamentoCliente(transacoes, metas) {
+  const el = document.getElementById('dash-engajamento');
+  if (!el) return;
+  if (typeof GamificacaoModule === 'undefined') { el.innerHTML = ''; return; }
+
+  const e = GamificacaoModule.calcular(transacoes, metas);
+
+  // Último lançamento registrado (created_at) → "há N dias"
+  const datas = transacoes.map(t => GamificacaoModule._interno.parseCriadoEm(t.created_at)).filter(Boolean);
+  const ultimo = datas.length ? new Date(Math.max(...datas)) : null;
+  const diasSem = ultimo ? Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(ultimo).setHours(0, 0, 0, 0)) / 864e5) : null;
+  const ultimoTxt = diasSem === null ? 'nunca' : diasSem === 0 ? 'hoje' : diasSem === 1 ? 'ontem' : `há ${diasSem} dias`;
+  const inativo = diasSem === null || diasSem >= 15;
+
+  const ganhas = e.conquistas.filter(c => c.ok).length;
+  const missoes = e.missoes.filter(m => m.cumprida).length;
+  const s = e.saude;
+
+  el.innerHTML = `
+    <div class="engaj-item">
+      <span class="engaj-item__rotulo">Nível</span>
+      <strong>${e.nivel.numero} · ${escaparHtml(e.nivel.nome)}</strong>
+      <span class="engaj-item__sub">${e.nivel.xp.toLocaleString('pt-BR')} XP</span>
+    </div>
+    <div class="engaj-item">
+      <span class="engaj-item__rotulo">Sequência</span>
+      <strong>🔥 ${e.sequencia} ${e.sequencia === 1 ? 'dia' : 'dias'}</strong>
+      <span class="engaj-item__sub">recorde ${e.melhorSequencia}</span>
+    </div>
+    <div class="engaj-item ${inativo ? 'engaj-item--alerta' : ''}">
+      <span class="engaj-item__rotulo">Último lançamento</span>
+      <strong>${ultimoTxt}</strong>
+      <span class="engaj-item__sub">${inativo ? 'vale mandar uma mensagem' : `${e.totalLancamentos} no total`}</span>
+    </div>
+    <div class="engaj-item">
+      <span class="engaj-item__rotulo">Saúde do mês</span>
+      <strong class="${s ? 'engaj-saude--' + s.classe : ''}">${s ? `${s.nota} · ${s.label}` : 'sem receita'}</strong>
+      <span class="engaj-item__sub">${s && s.delta !== null ? (s.delta === 0 ? 'igual ao mês passado' : `${s.delta > 0 ? '▲' : '▼'} ${Math.abs(s.delta)} vs. mês passado`) : 'mês corrente'}</span>
+    </div>
+    <div class="engaj-item">
+      <span class="engaj-item__rotulo">Semana / conquistas</span>
+      <strong>${missoes}/${e.missoes.length} missões</strong>
+      <span class="engaj-item__sub">${ganhas} de ${e.conquistas.length} conquistas</span>
+    </div>
+  `;
+}
+
+/** Receitas × despesas dos últimos 6 meses (histórico inteiro, sem transferências). */
+function renderEvolucaoAdmin(transacoes) {
+  const ctx = document.getElementById('chart-evolucao');
+  if (!ctx) return;
+  if (chartEvolucao) { chartEvolucao.destroy(); chartEvolucao = null; }
+
+  const hoje = new Date();
+  const meses = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
+    meses.push({ chave: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+                 rotulo: d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''), rec: 0, desp: 0 });
+  }
+  const porChave = Object.fromEntries(meses.map(m => [m.chave, m]));
+  transacoes.forEach(t => {
+    if (t.categorias?.grupo === 'transferencia' || !t.data_competencia) return;
+    const m = porChave[t.data_competencia.slice(0, 7)];
+    if (!m) return;
+    const v = Math.abs(parseFloat(t.valor) || 0);
+    if (t.tipo === 'receita') m.rec += v; else m.desp += v;
+  });
+
+  chartEvolucao = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: meses.map((m, i) => i === meses.length - 1 ? `${m.rotulo} (atual)` : m.rotulo),
+      datasets: [
+        { label: 'Receitas', data: meses.map(m => m.rec),  backgroundColor: '#1f9d8a', borderRadius: 4, maxBarThickness: 26 },
+        { label: 'Despesas', data: meses.map(m => m.desp), backgroundColor: '#e0663a', borderRadius: 4, maxBarThickness: 26 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', align: 'end', labels: { color: '#9fb8ab', font: { size: 11 }, usePointStyle: true, boxWidth: 8 } },
+        tooltip: { callbacks: {
+          label: c => ` ${c.dataset.label}: ${formatCurrency(c.parsed.y)}`,
+          footer: items => { const m = meses[items[0].dataIndex]; return `Saldo: ${formatCurrency(m.rec - m.desp)}`; }
+        } }
+      },
+      scales: {
+        x: { ticks: { color: '#9fb8ab', font: { size: 11 } }, grid: { display: false } },
+        y: { ticks: { color: '#6b9e84', font: { size: 10 }, callback: v => v >= 1000 ? `${(v / 1000).toLocaleString('pt-BR')} mil` : v },
+             grid: { color: 'rgba(255,255,255,0.05)' } }
+      }
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
 // OBSERVAÇÕES E DICAS AUTOMÁTICAS (dentro da aba "Resumo")
 // ══════════════════════════════════════════════════════════════
 /**
  * Gera um resumo em texto + uma lista de observações a partir das
  * métricas já calculadas em calcularEExibir(). Cada observação tem um
  * `tipo` (alerta/atencao/positivo/info) usado só para escolher o ícone
- * e a cor da borda na UI — nenhum julgamento é feito além do que os
- * próprios números já mostram.
+ * e a cor da borda na UI. Também usada pelo modal de planejamento
+ * (planejamentos.js).
  */
 function gerarInsightsDashboard(m) {
   const itens = [];
@@ -557,8 +782,7 @@ function renderInsightsDashboard(m) {
 /**
  * Monta a DRE e o Balancete do cliente cujo dashboard acabou de abrir,
  * usando as mesmas transações já buscadas em abrirDashboard() — sem
- * nenhuma consulta extra ao banco. As funções calcularDRE/renderDRE/
- * calcularBalancete/renderBalancete vêm de contabilidade.js.
+ * nenhuma consulta extra ao banco (funções de contabilidade.js).
  */
 function renderizarDREEBalanceteNoModal(transacoes, nomeCliente, periodoLabel = 'Todos os lançamentos') {
 
@@ -585,9 +809,7 @@ function ativarAbaModalDashboard(nomeAba) {
 /**
  * Liga os cliques das abas (Resumo/DRE/Balancete) e dos botões de
  * exportar PDF / ampliar balancete — chamada uma única vez, dentro de
- * initDashboards(), porque os elementos do modal são estáticos no
- * HTML (não são recriados a cada abertura, só o CONTEÚDO interno é
- * regenerado por abrirDashboard()).
+ * initDashboards().
  */
 function initModalDashboardTabs() {
   document.querySelectorAll('.modal-dashboard__tab').forEach(tab => {
@@ -607,4 +829,4 @@ function initModalDashboardTabs() {
   });
 }
 
-console.log('✅ dashboards.js carregado (Resumo + Insights + DRE + Balancete + filtro de período + privacidade)');
+console.log('✅ dashboards.js carregado (Resumo + Insights + DRE + Balancete + filtro de período + busca)');

@@ -22,18 +22,18 @@
  *   cache interno só importa para quem chamar loadAllTransactions()).
  *
  * ATUALIZAÇÃO — MOEDA NO PADRÃO BRASILEIRO:
- * `formatTransaction()` usava `R$ ${valor.toFixed(2)}` — trocado por
- * `UIModule.formatCurrency()` (separador de milhar "." e decimal ",").
+ * `formatTransaction()` usa `UIModule.formatCurrency()` (separador de
+ * milhar "." e decimal ",").
+ *
+ * ATUALIZAÇÃO — SEGURANÇA: descrição, categoria e nome do cliente
+ * passam por escaparHtml() (seguranca.js) antes de irem para o HTML.
  */
 
 const TransactionsModule = (() => {
     let allTransactions = [];
 
     // Rótulos legíveis para o campo `categorias.grupo` (essencial |
-    // estilo_de_vida | investimento | divida | transferencia | renda)
-    // — a tabela antiga (plano_de_contas) tinha um campo livre
-    // `macro_grupo`; a tabela correta (categorias) usa um enum fixo,
-    // por isso o mapeamento.
+    // estilo_de_vida | investimento | divida | transferencia | renda).
     const GRUPO_LABEL = {
         essencial:      'Essencial',
         estilo_de_vida: 'Estilo de Vida',
@@ -43,6 +43,8 @@ const TransactionsModule = (() => {
         renda:          'Renda'
     };
 
+    const esc = (texto) => (typeof escaparHtml === 'function' ? escaparHtml(texto) : String(texto ?? ''));
+
     const formatTransaction = (t) => {
         const data = t.data_competencia
             ? new Date(t.data_competencia + 'T00:00:00').toLocaleDateString('pt-BR')
@@ -51,11 +53,11 @@ const TransactionsModule = (() => {
         const clienteNome   = t.clientes?.nome     || '';
         const categoriaNome = t.categorias?.nome   || 'Sem categoria';
         const grupoLabel    = GRUPO_LABEL[t.categorias?.grupo] || '';
-        const descricao     = t.descricao ? ` · ${t.descricao}` : '';
+        const descricao     = t.descricao ? ` · ${esc(t.descricao)}` : '';
 
         const linhaDesc = clienteNome
-            ? `${clienteNome} — ${categoriaNome}${descricao}`
-            : `${categoriaNome}${descricao}`;
+            ? `${esc(clienteNome)} — ${esc(categoriaNome)}${descricao}`
+            : `${esc(categoriaNome)}${descricao}`;
 
         const valorFormatado = UIModule.formatCurrency(t.valor);
 
@@ -129,8 +131,7 @@ const TransactionsModule = (() => {
          * @param {Object} [filter={}]  - Filtros opcionais:
          *   { clientId, type, dataInicio, dataFim }
          *   dataInicio/dataFim: 'YYYY-MM-DD', comparação inclusiva sobre
-         *   `data_competencia` (string, comparação lexicográfica funciona
-         *   porque o formato é sempre YYYY-MM-DD).
+         *   `data_competencia`.
          * @param {Array}  [list=null]  - Lista explícita (sobrescreve allTransactions)
          */
         renderTransactions(containerId, filter = {}, list = null) {
@@ -159,7 +160,7 @@ const TransactionsModule = (() => {
             const temFiltroAtivo = !!(filter.type || filter.dataInicio || filter.dataFim);
             const mensagemVazio = temFiltroAtivo
                 ? 'Nenhuma transação encontrada para o filtro selecionado'
-                : 'Nenhuma transação registada';
+                : 'Nenhuma transação registrada';
 
             UIModule.setHTML(containerId, html || `<p class="empty-state">${mensagemVazio}</p>`);
             ligarBotoesDeAcaoDaTransacao(container);
@@ -175,8 +176,7 @@ const TransactionsModule = (() => {
 // Função global (não faz parte do IIFE) porque precisa ser chamada
 // após CADA renderização (o container inteiro é substituído via
 // innerHTML a cada render, então os listeners antigos são descartados
-// junto com o HTML velho — religar aqui é o que garante que os botões
-// sempre funcionem, mesmo após filtros sucessivos).
+// junto com o HTML velho).
 function ligarBotoesDeAcaoDaTransacao(container) {
     if (!container) return;
 

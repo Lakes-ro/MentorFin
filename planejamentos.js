@@ -3,47 +3,41 @@
  * Padrão: script global. Sem import/export.
  * Depende de: supabaseClient, currentAdmin, allClientes,
  *             loadAllClientes, openModal, closeModal,
- *             showToast, formatCurrency, formatDate (admin.js)
+ *             showToast, formatCurrency, formatDate (admin.js),
+ *             gerarInsightsDashboard (dashboards.js — carregado ANTES).
  *
  * ═══════════════════════════════════════════════════════════════
  * CORREÇÃO CRÍTICA — `planejamentos.admin_id` NÃO EXISTE:
  * ═══════════════════════════════════════════════════════════════
- * A versão anterior filtrava/gravava `planejamentos` usando uma
- * coluna `admin_id` — confirmado ao vivo via Supabase MCP
- * (information_schema): essa coluna NUNCA existiu na tabela. A tabela
- * só tem `client_id`. Isso causava o erro 400 "column
- * planejamentos.admin_id does not exist" reportado no console, que
- * travava a aba inteira em "Carregando..." para sempre.
- *
- * A RLS de `planejamentos` (`planejamentos_admin_all`) também nunca
- * checou uma coluna admin_id — ela sempre validou via JOIN:
- *   EXISTS (SELECT 1 FROM clientes c WHERE c.id = planejamentos.client_id
- *           AND c.admin_id = auth.uid())
- * ou seja, o "dono" de um planejamento é definido por QUEM É O DONO DO
- * CLIENTE (clientes.admin_id), nunca por uma coluna direta em
- * planejamentos. A correção segue exatamente esse mesmo modelo usado
- * por metas.js: carrega os clientes do admin primeiro, e filtra
- * planejamentos por `client_id IN (clientIds)` — nunca por admin_id.
+ * A tabela só tem `client_id`. O "dono" de um planejamento é definido
+ * por QUEM É O DONO DO CLIENTE (clientes.admin_id). Carrega os
+ * clientes do admin primeiro e filtra planejamentos por
+ * `client_id IN (clientIds)` — nunca por admin_id.
  *
  * ═══════════════════════════════════════════════════════════════
- * NOVO — RESOLVER "SOLICITAÇÕES PENDENTES":
+ * SOLICITAÇÕES PENDENTES:
  * ═══════════════════════════════════════════════════════════════
- * O bloco "📩 Solicitações Pendentes" já existia no HTML (admin.html)
- * mas nunca foi de fato implementado neste arquivo — ficava preso em
- * "Carregando..." também. Agora:
  *   - renderSolicitacoesPendentes() busca em `solicitacoes_planejamento`
- *     (status = 'pendente') e mostra um card por cliente com a
- *     mensagem que ele mandou (se houver).
- *   - "📋 Criar Planejamento" abre o modal já com aquele cliente
- *     pré-selecionado, e guarda o id da solicitação; ao salvar o
- *     planejamento com sucesso, a solicitação é marcada como
- *     'atendida' automaticamente.
- *   - "✕ Descartar" marca a solicitação como 'atendida' sem criar
- *     nenhum planejamento (ex: pedido duplicado, ou já resolvido por
- *     fora).
+ *     (status = 'pendente') e mostra um card por cliente.
+ *   - "📋 Criar Planejamento" abre o modal com o cliente
+ *     pré-selecionado; ao salvar, a solicitação vira 'atendida'.
+ *   - "✕ Descartar" marca como 'atendida' sem criar planejamento.
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * ATUALIZAÇÃO — DICAS DE VOLTA NO MODAL DE PLANEJAMENTO:
+ * ═══════════════════════════════════════════════════════════════
+ * O resumo do modal agora usa as MESMAS regras do dashboard do admin
+ * (transferências fora, essencial/estilo de vida/investimento/dívida
+ * separados) e mostra as mesmas "💡 Observações e Dicas" de
+ * gerarInsightsDashboard(). O botão "Usar nas recomendações" copia
+ * essas dicas para o campo de texto, como ponto de partida.
+ * Período: últimos 3 meses (mais representativo que o histórico todo).
  */
 
 let planejamentoSolicitacaoIdAtual = null; // solicitação sendo resolvida pelo modal aberto no momento (ou null)
+let planejamentoDicasAtuais        = null; // { resumo, itens } do cliente selecionado no modal
+
+const PLANEJAMENTO_MESES_ANALISE = 3;
 
 function initPlanejamentos() {
   document.getElementById('btn-add-planejamento')
@@ -54,6 +48,9 @@ function initPlanejamentos() {
 
   document.getElementById('planejamento-cliente-select')
     ?.addEventListener('change', (e) => carregarResumoFinanceiro(e.target.value));
+
+  document.getElementById('btn-usar-dicas-planejamento')
+    ?.addEventListener('click', usarDicasNasRecomendacoes);
 
   window.addEventListener('section:change', ({ detail }) => {
     if (detail.section === 'planejamentos') {
@@ -174,16 +171,18 @@ async function renderPlanejamentos() {
     return `
       <div class="planejamento-card">
         <div class="planejamento-info">
-          <h4>${p.titulo}</h4>
-          <p>Cliente: ${cliente?.nome || '—'} · Criado em ${formatDate(p.created_at)}</p>
+          <h4>${escaparHtml(p.titulo)}</h4>
+          <p>Cliente: <span class="dado-sensivel">${escaparHtml(cliente?.nome) || '—'}</span> · Criado em ${formatDate(p.created_at)}</p>
         </div>
         <div class="planejamento-actions">
           <button class="btn-card editar"  data-id="${p.id}">✏️ Editar</button>
-          <button class="btn-card deletar" data-id="${p.id}" data-titulo="${p.titulo}">🗑️ Deletar</button>
+          <button class="btn-card deletar" data-id="${p.id}" data-titulo="${escaparHtml(p.titulo)}">🗑️ Deletar</button>
         </div>
       </div>
     `;
   }).join('');
+
+  if (typeof aplicarPrivacidadeNaGrade === 'function') aplicarPrivacidadeNaGrade(lista);
 
   lista.querySelectorAll('.btn-card.editar').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -231,35 +230,114 @@ async function abrirModalPlanejamento(plan, opts = {}) {
   openModal('modal-planejamento');
 }
 
-// ── Resumo financeiro do cliente ──────────────────────────────
+// ── Resumo financeiro + dicas do cliente ──────────────────────
+function inicioJanelaAnalise() {
+  const hoje = new Date();
+  const d = new Date(hoje.getFullYear(), hoje.getMonth() - (PLANEJAMENTO_MESES_ANALISE - 1), 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
 async function carregarResumoFinanceiro(clienteId) {
   if (!clienteId) { resetResumo(); return; }
 
+  renderDicasPlanejamento(null, 'Carregando análise...');
+
   const { data: transacoes, error } = await supabaseClient
     .from('transacoes')
-    .select('valor, tipo')
-    .eq('client_id', clienteId);
+    .select('valor, tipo, data_competencia, categorias(grupo)')
+    .eq('client_id', clienteId)
+    .gte('data_competencia', inicioJanelaAnalise());
 
   if (error) {
     console.error('❌ carregarResumoFinanceiro:', error.message);
     resetResumo();
+    renderDicasPlanejamento(null, 'Não foi possível carregar a análise deste cliente.');
     return;
   }
 
-  if (!transacoes?.length) { resetResumo(); return; }
+  // Mesmas regras de dashboards.js: transferência não é receita nem despesa.
+  const validas  = (transacoes || []).filter(t => t.categorias?.grupo !== 'transferencia');
+  const receitas = validas.filter(t => t.tipo === 'receita');
+  const despesas = validas.filter(t => t.tipo === 'despesa');
+  const soma     = (lista) => lista.reduce((s, t) => s + Math.abs(parseFloat(t.valor) || 0), 0);
+  const porGrupo = (g) => soma(despesas.filter(t => t.categorias?.grupo === g));
 
-  const receitas = transacoes.filter(t => t.tipo === 'receita');
-  const despesas = transacoes.filter(t => t.tipo === 'despesa');
+  const totalReceita        = soma(receitas);
+  const totalDespesa        = soma(despesas);
+  const custoSobrevivencia  = porGrupo('essencial');
+  const aportesInvestimento = porGrupo('investimento');
+  const custoDivida         = porGrupo('divida');
+  const estiloDeVida        = Math.max(0, totalDespesa - custoSobrevivencia - aportesInvestimento - custoDivida);
+  const saldo               = totalReceita - totalDespesa;
 
-  const totalReceita = receitas.reduce((s, t) => s + Math.abs(t.valor), 0);
-  const totalDespesa = despesas.reduce((s, t) => s + Math.abs(t.valor), 0);
-  const rendaPassiva = 0;
-  const rendaAtiva   = totalReceita;
-
-  document.getElementById('plan-renda-ativa').textContent   = formatCurrency(rendaAtiva);
-  document.getElementById('plan-renda-passiva').textContent = formatCurrency(rendaPassiva);
+  document.getElementById('plan-renda-ativa').textContent   = formatCurrency(totalReceita);
+  document.getElementById('plan-renda-passiva').textContent = formatCurrency(0);
   document.getElementById('plan-renda-total').textContent   = formatCurrency(totalReceita);
   document.getElementById('plan-despesa-total').textContent = formatCurrency(totalDespesa);
+
+  if (typeof gerarInsightsDashboard !== 'function') {
+    renderDicasPlanejamento(null, 'Módulo de dicas não carregou — recarregue a página.');
+    return;
+  }
+
+  planejamentoDicasAtuais = gerarInsightsDashboard({
+    totalReceita, totalDespesa, custoSobrevivencia, estiloDeVida,
+    aportesInvestimento, custoDivida, saldo,
+    taxaPoupanca: totalReceita > 0 ? (saldo / totalReceita) * 100 : 0,
+    totalTransacoes: validas.length
+  });
+
+  renderDicasPlanejamento(planejamentoDicasAtuais);
+}
+
+function renderDicasPlanejamento(dicas, mensagem = '') {
+  const resumoEl = document.getElementById('planejamento-dicas-resumo');
+  const listaEl  = document.getElementById('planejamento-dicas-lista');
+  const botao    = document.getElementById('btn-usar-dicas-planejamento');
+  if (!resumoEl || !listaEl) return;
+
+  if (!dicas) {
+    resumoEl.textContent = '';
+    listaEl.innerHTML    = mensagem ? `<p class="empty-state">${mensagem}</p>` : '';
+    botao?.classList.add('hidden');
+    return;
+  }
+
+  const ICONE = { alerta: '🔴', atencao: '🟡', positivo: '🟢', info: 'ℹ️' };
+  resumoEl.textContent = `Últimos ${PLANEJAMENTO_MESES_ANALISE} meses: ${dicas.resumo}`;
+  listaEl.innerHTML = dicas.itens.length
+    ? dicas.itens.map(item => `
+        <div class="insight-item insight-item--${item.tipo}">
+          <span class="insight-item__icone">${ICONE[item.tipo] || 'ℹ️'}</span>
+          <span class="insight-item__texto">${item.texto}</span>
+        </div>
+      `).join('')
+    : '<p class="empty-state">Sem observações específicas para este período.</p>';
+
+  botao?.classList.toggle('hidden', !dicas.itens.length);
+}
+
+/**
+ * Copia as dicas para o campo "Recomendações", trocando "o cliente"
+ * por uma forma direta ("você"), já que o planejamento é lido pelo
+ * próprio cliente. Não apaga o que o admin já escreveu.
+ */
+function usarDicasNasRecomendacoes() {
+  if (!planejamentoDicasAtuais?.itens?.length) return;
+  const campo = document.getElementById('planejamento-recomendacoes');
+  if (!campo) return;
+
+  const paraCliente = (texto) => texto
+    .replace(/\bO cliente está\b/g, 'Você está')
+    .replace(/\bo cliente está\b/g, 'você está')
+    .replace(/\bO cliente\b/g, 'Você')
+    .replace(/\bo cliente\b/g, 'você')
+    .replace(/\bcom o cliente\b/g, 'entre nós');
+
+  const linhas = planejamentoDicasAtuais.itens.map(i => `• ${paraCliente(i.texto)}`).join('\n');
+  campo.value = campo.value.trim() ? `${campo.value.trim()}\n\n${linhas}` : linhas;
+  campo.focus();
+  showToast('Dicas adicionadas às recomendações — ajuste o texto como preferir.');
 }
 
 function resetResumo() {
@@ -267,6 +345,8 @@ function resetResumo() {
     const el = document.getElementById(id);
     if (el) el.textContent = formatCurrency(0);
   });
+  planejamentoDicasAtuais = null;
+  renderDicasPlanejamento(null);
 }
 
 // ── Salva planejamento ────────────────────────────────────────
@@ -306,9 +386,7 @@ async function salvarPlanejamento() {
   }
 
   // Se este planejamento resolveu uma solicitação pendente do
-  // cliente, marca a solicitação como atendida — evita o admin ter
-  // que lembrar de ir descartar manualmente depois de já ter criado
-  // o planejamento correspondente.
+  // cliente, marca a solicitação como atendida.
   if (planejamentoSolicitacaoIdAtual) {
     await supabaseClient
       .from('solicitacoes_planejamento')
@@ -333,4 +411,4 @@ async function deletarPlanejamento(id, titulo) {
   renderPlanejamentos();
 }
 
-console.log('✅ planejamentos.js carregado');
+console.log('✅ planejamentos.js carregado (com dicas no modal)');

@@ -11,6 +11,16 @@
  * admin pode lançar uma transação manualmente ou importar um extrato
  * (OFX/CSV) que o cliente mandou, reaproveitando toda a inteligência
  * de classificação automática já usada no painel do próprio cliente.
+ *
+ * ATUALIZAÇÃO — BUSCA: campo "Buscar cliente" acima da grade filtra
+ * os cards por apelido, nome, e-mail, telefone ou CPF (ver
+ * ligarBuscaClientes/aplicarBuscaClientes em admin.js).
+ *
+ * ATUALIZAÇÃO — APELIDOS:
+ * O card mostra o apelido em destaque e o nome completo logo abaixo
+ * (vindos de `clients_admin_view`, ver loadAllClientes em admin.js).
+ * `c.nome` já é o rótulo de exibição; o nome real para editar é
+ * `c.nomeCompleto`.
  */
 
 let clienteEmEdicao     = null;
@@ -45,6 +55,8 @@ function initClientes() {
     if (detail.section === 'clientes') renderClientes();
   });
 
+  ligarBuscaClientes('clientes-busca', 'clientes-grid', 'clientes-busca-contador');
+
   renderClientes();
 }
 
@@ -68,17 +80,18 @@ async function renderClientes() {
 
   // ESTRUTURA FIXA DO CARD (ver .card--uniforme em admin.css): todo
   // card tem exatamente as mesmas faixas, na mesma ordem e na mesma
-  // altura — identidade (nome/email), espaçador elástico e o bloco de
-  // ações colado na base. Antes, nome curto x nome longo mudava a
-  // altura da faixa de identidade e cada card empurrava os botões para
-  // uma altura diferente, dando o efeito de "cada um para um lado".
+  // altura — identidade (apelido/nome/email), espaçador elástico e o
+  // bloco de ações colado na base.
   grid.innerHTML = allClientes.map(c => {
-    const naoLidas = mensagensNaoLidas[c.id] || 0;
+    const naoLidas   = mensagensNaoLidas[c.id] || 0;
+    const titulo     = c.apelido || c.nomeCompleto || 'Cliente';
+    const mostraNome = c.apelido && c.nomeCompleto && c.apelido.toLowerCase() !== c.nomeCompleto.toLowerCase();
     return `
-    <div class="card card--uniforme">
+    <div class="card card--uniforme" data-busca="${textoBuscaCliente(c)}">
       <div class="card-identidade">
         <div class="card-identidade__texto">
-          <p class="card-name dado-sensivel">${escaparHtml(c.nome)}</p>
+          <p class="card-name dado-sensivel">${escaparHtml(titulo)}</p>
+          ${mostraNome ? `<p class="card-sub dado-sensivel">${escaparHtml(c.nomeCompleto)}</p>` : ''}
           <p class="card-sub dado-sensivel">${escaparHtml(c.email) || 'Sem email'}</p>
         </div>
         <button type="button" class="btn-olho" data-olho-card
@@ -103,6 +116,10 @@ async function renderClientes() {
   }).join('');
 
   if (typeof aplicarPrivacidadeNaGrade === 'function') aplicarPrivacidadeNaGrade(grid);
+
+  // Mantém o filtro digitado quando a grade é redesenhada (ex: depois
+  // de salvar ou deletar um cliente).
+  aplicarBuscaClientes('clientes-busca', 'clientes-grid', 'clientes-busca-contador');
 
   grid.querySelectorAll('.btn-card.editar').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -152,11 +169,11 @@ function abrirModalCliente(cliente) {
   document.getElementById('modal-cliente-title').textContent =
     cliente ? '✏️ Editar Cliente' : '📋 Adicionar Cliente';
 
-  document.getElementById('cliente-id').value       = cliente?.id       || '';
-  document.getElementById('cliente-nome').value     = cliente?.nome     || '';
-  document.getElementById('cliente-email').value    = cliente?.email    || '';
-  document.getElementById('cliente-cpf').value      = cliente?.cpf      || '';
-  document.getElementById('cliente-telefone').value = cliente?.telefone || '';
+  document.getElementById('cliente-id').value       = cliente?.id           || '';
+  document.getElementById('cliente-nome').value     = cliente?.nomeCompleto || '';
+  document.getElementById('cliente-email').value    = cliente?.email        || '';
+  document.getElementById('cliente-cpf').value      = cliente?.cpf          || '';
+  document.getElementById('cliente-telefone').value = cliente?.telefone     || '';
 
   openModal('modal-cliente');
 }
@@ -173,9 +190,16 @@ async function salvarCliente() {
   // EMAIL OBRIGATÓRIO + AVISO DE DUPLICIDADE: o email é a única forma
   // confiável do sistema reconhecer "essa é a mesma pessoa" quando ela
   // se registra depois — sem ele, a fusão automática (ver
-  // reconciliar_cliente_no_registro no banco) não tem como funcionar.
+  // provision_client no banco) não tem como funcionar.
   if (!email) {
     showToast('Informe o email do cliente — sem ele, se a pessoa criar a própria conta depois, vai virar um cadastro duplicado.', 'error');
+    return;
+  }
+
+  // O nome nunca pode ser o próprio e-mail (mesma regra do cadastro).
+  const emailNorm = email.toLowerCase();
+  if (nome.includes('@') || [emailNorm, emailNorm.split('@')[0]].includes(nome.toLowerCase())) {
+    showToast('O nome do cliente não pode ser igual ao e-mail.', 'error');
     return;
   }
 
@@ -257,7 +281,7 @@ async function carregarComentarios(clienteId) {
   lista.innerHTML = data.map(c => `
     <div class="comentario-item">
       <p class="comentario-data">${formatDataComentario(c.created_at)}</p>
-      <p class="comentario-texto">${c.texto}</p>
+      <p class="comentario-texto">${escaparHtml(c.texto)}</p>
     </div>
   `).join('');
 }
@@ -285,4 +309,4 @@ function formatDataComentario(dateStr) {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-console.log('✅ clientes.js carregado (com botão de Lançamentos)');
+console.log('✅ clientes.js carregado (com apelidos)');

@@ -5,6 +5,119 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Gestor Financeiro Pro — Admin</title>
   <link rel="stylesheet" href="admin.css" />
+
+  <!-- ROLAGEM PRESA NO ELEMENTO — sem isto, ao chegar no fim de uma
+       lista rolável (notificações, modais, mensagens, tabelas) a
+       rolagem "vazava" para a página de trás, que rolava junto.
+       Pode ser movido para admin.css. -->
+  <style>
+    .notif-painel,
+    .notif-lista,
+    .modal-overlay,
+    .modal,
+    .modal-body,
+    .mensagens-admin-lista,
+    .comentarios-list,
+    .razonete-list,
+    .import-review__table-wrapper,
+    .modal-ampliado__content,
+    .custom-select__panel,
+    .sidebar,
+    .sidebar-nav,
+    textarea,
+    select[multiple] {
+      overscroll-behavior: contain;
+    }
+
+    /* Com qualquer modal aberto, a página de trás fica parada. */
+    body:has(.modal-overlay:not(.hidden)) {
+      overflow: hidden;
+    }
+
+    /* ── Dashboard do cliente (modal) ─────────────────────── */
+    .kpi-sub { display: block; margin-top: 0.35rem; font-size: 0.72rem; color: var(--text-secondary); line-height: 1.3; }
+    .kpi-sub--bom     { color: #34d399; }
+    .kpi-sub--atencao { color: #fbbf24; }
+    .kpi-sub--ruim    { color: #f87171; }
+    .kpi-value--negativo { color: #f87171 !important; }
+
+    .dash-engajamento {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 0.6rem; margin-bottom: 1rem;
+    }
+    .dash-engajamento .empty-state { grid-column: 1 / -1; }
+    .engaj-item {
+      display: flex; flex-direction: column; gap: 0.15rem;
+      padding: 0.7rem 0.85rem; border-radius: 10px;
+      background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-default);
+    }
+    .engaj-item__rotulo { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); }
+    .engaj-item strong { font-size: 0.95rem; color: var(--text-primary); }
+    .engaj-item__sub { font-size: 0.72rem; color: var(--text-secondary); }
+    .engaj-item--alerta { border-color: rgba(251, 191, 36, 0.55); background: rgba(251, 191, 36, 0.07); }
+    .engaj-item--alerta strong { color: #fbbf24; }
+    .engaj-saude--otima { color: #34d399 !important; }
+    .engaj-saude--boa { color: #7ea2ff !important; }
+    .engaj-saude--atencao { color: #fbbf24 !important; }
+    .engaj-saude--critica { color: #f87171 !important; }
+
+    /* Títulos de grupo no Resumo do dashboard (período x histórico) */
+    .dash-grupo-titulo {
+      display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+      margin: 26px 0 12px; padding-bottom: 8px;
+      border-bottom: 1px solid var(--border-default);
+    }
+    .dash-grupo-titulo:first-child { margin-top: 4px; }
+    .dash-grupo-titulo span { font-size: 13px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--text-primary); }
+    .dash-grupo-titulo small { font-size: 12px; color: var(--text-secondary); }
+    #tab-resumo .insights-section, #tab-resumo .analise-section, #tab-resumo .chart-card--largo { margin-top: 1rem; }
+    .dash-503020 {
+      margin: 1rem 0; padding: 1rem 1.1rem; border-radius: 12px;
+      background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-default);
+    }
+    .dash-503020 h4 { margin: 0; }
+    .regua-topo { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; gap: 1rem; }
+    .regua-legenda { font-size: 0.72rem; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 0.4rem; }
+    .regua-legenda__marca { display: inline-block; width: 2px; height: 12px; background: #fff; opacity: 0.8; }
+    .regua-linha {
+      display: grid; grid-template-columns: minmax(150px, 1.1fr) 3fr minmax(110px, auto);
+      align-items: center; gap: 0.9rem; padding: 0.45rem 0;
+    }
+    .regua-linha__rotulo { display: flex; flex-direction: column; min-width: 0; }
+    .regua-linha__nome { font-size: 0.85rem; font-weight: 600; color: var(--text-primary); }
+    .regua-linha__dica { font-size: 0.68rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .regua-linha__barra { position: relative; height: 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); }
+    .regua-linha__preenchimento { height: 100%; border-radius: 999px; transition: width 0.6s ease; }
+    .regua-linha__marca { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #fff; opacity: 0.8; border-radius: 1px; }
+    .regua-linha__valor { display: flex; flex-direction: column; align-items: flex-end; font-size: 0.72rem; }
+    .regua-linha__valor strong { font-size: 0.95rem; }
+    .regua--ok   { color: #34d399; }
+    .regua--fora { color: #fbbf24; }
+    .regua-linha__valor strong { color: var(--text-primary); }
+
+    .chart-card--largo { margin-top: 1rem; }
+    .chart-container--baixo { height: 220px; }
+
+    @media (max-width: 640px) {
+      .regua-linha { grid-template-columns: 1fr auto; }
+      .regua-linha__barra { grid-column: 1 / -1; order: 3; }
+    }
+
+    /* Conversa com o cliente: separador de dia (não mexe no layout das
+       bolhas, que vem do admin.css) */
+    .mensagem-dia {
+      display: block;
+      width: fit-content;
+      clear: both;
+      margin: 0.6rem auto 0.4rem;
+      padding: 0.15rem 0.75rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      border: 1px solid var(--border-default);
+      border-radius: 999px;
+    }
+  </style>
 </head>
 <body class="app-body">
 
@@ -18,11 +131,11 @@
         <button class="nav-item active" data-section="clientes">
           <span class="nav-icon">📋</span> Clientes
         </button>
-        <button class="nav-item" data-section="categorias">
-          <span class="nav-icon">🗂️</span> Categorias
-        </button>
         <button class="nav-item" data-section="dashboards">
           <span class="nav-icon">📊</span> Dashboards
+        </button>
+        <button class="nav-item" data-section="categorias">
+          <span class="nav-icon">🗂️</span> Categorias
         </button>
         <button class="nav-item" data-section="metas">
           <span class="nav-icon">🎯</span> Metas
@@ -60,7 +173,8 @@
         <button type="button" id="btn-privacidade" class="btn-privacidade"
           aria-pressed="false" title="Ocultar nomes e emails dos clientes">👁️</button>
 
-        <!-- Central de Notificações — ver notificacoes-admin.js. Avisa
+        <!-- Central de Notificações — ver notificacoes-admin.js
+             (iniciada por admin.js → initNotificacoesAdmin). Avisa
              sobre: novo cliente cadastrado, cliente criou categoria
              própria (pendente de revisão), risco financeiro virou
              amarelo/vermelho, e nova mensagem de um cliente. -->
@@ -89,8 +203,40 @@
         <h2 class="section-title">📋 Meus Clientes</h2>
         <button class="btn-action" id="btn-add-cliente">+ Adicionar Cliente</button>
       </div>
+
+      <!-- Busca de clientes — filtra os cards já carregados por apelido,
+           nome, e-mail, telefone ou CPF. Ver ligarBuscaClientes()/
+           aplicarBuscaClientes() em admin.js. -->
+      <div class="busca-clientes" style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; margin-bottom:1.25rem;">
+        <input type="search" id="clientes-busca" autocomplete="off"
+          placeholder="🔍 Buscar por apelido, nome, e-mail, telefone ou CPF..."
+          aria-label="Buscar cliente"
+          style="flex:1 1 320px; max-width:520px; background:var(--bg-input); border:1px solid var(--border-default); border-radius:var(--radius-sm); padding:0.6rem 0.9rem; color:var(--text-primary); font-family:var(--font-body); font-size:0.875rem; outline:none;">
+        <span id="clientes-busca-contador" class="panel-subtitle" style="font-size:0.8rem;"></span>
+      </div>
+
       <div id="clientes-grid" class="cards-grid">
         <p class="empty-state">Carregando clientes...</p>
+      </div>
+    </section>
+
+    <!-- ── DASHBOARDS ───────────────────────────────────────── -->
+    <section id="section-dashboards" class="section">
+      <div class="section-toolbar">
+        <h2 class="section-title">📊 Dashboards dos Clientes</h2>
+      </div>
+
+      <!-- Busca de clientes — mesma lógica da seção Clientes. -->
+      <div class="busca-clientes" style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; margin-bottom:1.25rem;">
+        <input type="search" id="dashboards-busca" autocomplete="off"
+          placeholder="🔍 Buscar por apelido, nome, e-mail, telefone ou CPF..."
+          aria-label="Buscar cliente"
+          style="flex:1 1 320px; max-width:520px; background:var(--bg-input); border:1px solid var(--border-default); border-radius:var(--radius-sm); padding:0.6rem 0.9rem; color:var(--text-primary); font-family:var(--font-body); font-size:0.875rem; outline:none;">
+        <span id="dashboards-busca-contador" class="panel-subtitle" style="font-size:0.8rem;"></span>
+      </div>
+
+      <div id="dashboards-grid" class="cards-grid">
+        <p class="empty-state">Carregando...</p>
       </div>
     </section>
 
@@ -131,16 +277,6 @@
            contábil (.plano-contas-secao), usando o codigo_contabil
            REAL salvo no banco quando existe. -->
       <div id="categorias-grid">
-        <p class="empty-state">Carregando...</p>
-      </div>
-    </section>
-
-    <!-- ── DASHBOARDS ───────────────────────────────────────── -->
-    <section id="section-dashboards" class="section">
-      <div class="section-toolbar">
-        <h2 class="section-title">📊 Dashboards dos Clientes</h2>
-      </div>
-      <div id="dashboards-grid" class="cards-grid">
         <p class="empty-state">Carregando...</p>
       </div>
     </section>
@@ -554,43 +690,41 @@
           <button type="button" class="modal-dashboard__tab" data-tab="balancete">📋 Balancete</button>
         </div>
 
-        <!-- ABA: RESUMO — conteúdo 100% original, só embrulhado na aba -->
+        <!-- ABA: RESUMO -->
         <div class="modal-dashboard__tab-content active" id="tab-resumo">
+
+          <!-- ORDEM DO RESUMO (organizada por pergunta):
+               1) O período escolhido: números → diagnóstico → régua →
+                  para onde foi → detalhe (tudo segue o filtro acima).
+               2) Histórico do cliente: evolução 6 meses + engajamento
+                  (não seguem o filtro). -->
+          <div class="dash-grupo-titulo"><span>📅 No período selecionado</span></div>
           <div class="kpi-grid">
             <div class="kpi-card kpi-orange">
               <span class="kpi-label">🟠 Custo de Sobrevivência</span>
               <span class="kpi-value" id="kpi-sobrevivencia">R$ 0,00</span>
+              <span class="kpi-sub" id="kpi-sobrevivencia-sub"></span>
             </div>
             <div class="kpi-card kpi-yellow">
               <span class="kpi-label">🎯 Estilo de Vida</span>
               <span class="kpi-value" id="kpi-estilo">R$ 0,00</span>
+              <span class="kpi-sub" id="kpi-estilo-sub"></span>
             </div>
             <div class="kpi-card kpi-green">
               <span class="kpi-label">💰 Investimentos</span>
               <span class="kpi-value" id="kpi-investimentos">R$ 0,00</span>
+              <span class="kpi-sub" id="kpi-investimentos-sub"></span>
             </div>
             <div class="kpi-card kpi-orange">
               <span class="kpi-label">💳 Dívidas e Financiamentos</span>
               <span class="kpi-value" id="kpi-dividas">R$ 0,00</span>
+              <span class="kpi-sub" id="kpi-dividas-sub"></span>
             </div>
             <div class="kpi-card kpi-blue">
               <span class="kpi-label">📊 Taxa de Poupança</span>
               <span class="kpi-value" id="kpi-poupanca">0%</span>
+              <span class="kpi-sub" id="kpi-poupanca-sub"></span>
             </div>
-          </div>
-          <div class="charts-row">
-            <div class="chart-card">
-              <h4>📊 Essencial vs. Estilo de Vida</h4>
-              <div class="chart-container"><canvas id="chart-donut"></canvas></div>
-            </div>
-            <div class="chart-card">
-              <h4>📊 Top Categorias de Despesa</h4>
-              <div class="chart-container"><canvas id="chart-bar"></canvas></div>
-            </div>
-          </div>
-          <div class="analise-section">
-            <h4>📊 ANÁLISE DETALHADA</h4>
-            <div class="analise-grid" id="analise-grid"></div>
           </div>
 
           <!-- Observações e dicas geradas automaticamente com base nos
@@ -601,6 +735,36 @@
             <p class="insights-resumo" id="insights-dashboard-resumo"></p>
             <div class="insights-list" id="insights-dashboard-lista"></div>
           </div>
+
+          <!-- Régua 50/30/20 — ver render503020() em dashboards.js -->
+          <div class="dash-503020" id="dash-503020"></div>
+
+          <div class="charts-row">
+            <div class="chart-card">
+              <h4>🍩 Para onde foram as despesas</h4>
+              <div class="chart-container"><canvas id="chart-donut"></canvas></div>
+            </div>
+            <div class="chart-card">
+              <h4>📊 Top Categorias de Despesa</h4>
+              <div class="chart-container"><canvas id="chart-bar"></canvas></div>
+            </div>
+          </div>
+
+          <div class="analise-section">
+            <h4>📊 ANÁLISE DETALHADA</h4>
+            <div class="analise-grid" id="analise-grid"></div>
+          </div>
+
+          <div class="dash-grupo-titulo"><span>🕒 Histórico do cliente</span><small>não segue o filtro de período</small></div>
+          <!-- Evolução mensal (histórico inteiro, não segue o filtro) -->
+          <div class="chart-card chart-card--largo">
+            <h4>📈 Receitas × despesas — últimos 6 meses</h4>
+            <div class="chart-container chart-container--baixo"><canvas id="chart-evolucao"></canvas></div>
+          </div>
+
+          <!-- Engajamento do cliente (histórico inteiro) — ver
+               renderEngajamentoCliente() em dashboards.js -->
+          <div class="dash-engajamento" id="dash-engajamento"></div>
         </div>
 
         <!-- ABA: DRE (Demonstração do Resultado) -->
@@ -738,6 +902,18 @@
           <label>Cliente</label>
           <select id="planejamento-cliente-select"></select>
         </div>
+
+        <!-- Dicas automáticas do cliente selecionado (mesmas regras do
+             dashboard do admin) — ver carregarResumoFinanceiro() e
+             usarDicasNasRecomendacoes() em planejamentos.js. -->
+        <div class="insights-section planejamento-dicas">
+          <h4>💡 Observações e Dicas</h4>
+          <p class="insights-resumo" id="planejamento-dicas-resumo"></p>
+          <div class="insights-list" id="planejamento-dicas-lista"></div>
+          <button type="button" class="btn-secondary hidden" id="btn-usar-dicas-planejamento"
+            style="margin-top:0.75rem;">↓ Usar nas recomendações</button>
+        </div>
+
         <div class="form-group">
           <label>Título do Planejamento</label>
           <input type="text" id="planejamento-titulo" placeholder="Planejamento mensal" />
@@ -793,9 +969,10 @@
         <div id="mensagens-admin-lista" class="mensagens-admin-lista">
           <p class="empty-state">Carregando conversa...</p>
         </div>
-        <div class="mensagens-admin-form">
-          <textarea id="mensagem-admin-texto" rows="2" placeholder="Escreva uma resposta..." style="flex:1;"></textarea>
-          <button type="button" class="btn-primary-sm" id="btn-enviar-mensagem-admin">Enviar</button>
+        <div class="mensagens-admin-form" style="display:flex; gap:0.6rem; align-items:flex-end; margin-top:0.75rem;">
+          <textarea id="mensagem-admin-texto" rows="3" placeholder="Escreva uma resposta... (Enter envia, Shift+Enter quebra linha)"
+            style="flex:1; min-width:0; min-height:72px; resize:vertical;"></textarea>
+          <button type="button" class="btn-primary-sm" id="btn-enviar-mensagem-admin" style="flex-shrink:0;">Enviar</button>
         </div>
       </div>
     </div>
@@ -810,7 +987,8 @@
        3. admin.js   → currentAdmin, allClientes, helpers globais
        4. contabilidade.js → DRE/Balancete/exportação PDF/anotação
           (usado por dashboards.js e categorias.js, por isso vem antes)
-       5. Sub-módulos (usam globals definidos acima)
+       5. Sub-módulos (usam globals definidos acima). dashboards.js
+          vem antes de planejamentos.js (gerarInsightsDashboard).
        6. smart-input.js / regras-aprendidas.js / importacao-extrato.js
           → reaproveitados sem alteração pelo modal "Lançamentos para
           Cliente" (ver lancamentos-admin.js, que precisa vir por
@@ -828,6 +1006,7 @@
   <script src="categorias.js"></script>
   <script src="privacidade.js"></script>
   <script src="clientes.js"></script>
+  <script src="gamificacao.js"></script>
   <script src="dashboards.js"></script>
   <script src="metas.js"></script>
   <script src="planejamentos.js"></script>

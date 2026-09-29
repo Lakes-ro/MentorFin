@@ -2,7 +2,7 @@
  * APP.JS - ORQUESTRADOR DO PAINEL DO CLIENTE
  * ================================================
  * Este ficheiro (usado por index.html e client.html) cuida
- * SOMENTE do fluxo do cliente (login, registo, onboarding,
+ * SOMENTE do fluxo do cliente (login, cadastro, onboarding,
  * dashboard do cliente). O painel do administrador vive
  * exclusivamente em admin.html + admin.js.
  *
@@ -34,6 +34,19 @@
  * toggleHistoricoCard() (botão-cabeçalho, reaproveitando as classes
  * genéricas .btn-collapse/.collapse-icon/.collapse-content que já
  * existiam em style.css sem uso).
+ *
+ * ATUALIZAÇÃO — CADASTRO E NOMES (phase1_identity_signup_and_names):
+ * - Cadastro: o front só chama signUp com nome/apelido nos metadados.
+ *   O trigger `on_auth_user_created` cria usuarios + perfil 'client' +
+ *   clientes no banco. Antes eram 3 inserts + 1 RPC feitos pelo front,
+ *   que falhavam em silêncio com a confirmação de e-mail ligada (sem
+ *   sessão, a RLS barrava) e ainda gravavam perfil 'client' num CHECK
+ *   que só aceitava 'cliente'.
+ * - Onboarding: uma única RPC, `complete_signup(p_full_name,
+ *   p_nickname)`.
+ * - O e-mail NUNCA é usado como nome: sem nome, o usuário vai para o
+ *   onboarding. validarNomesUsuario() (auth.js) + trigger
+ *   `trg_validate_user_names` no banco garantem isso.
  */
 
 // ================================================
@@ -114,6 +127,33 @@ function navegarParaSecaoCliente(sectionId) {
 }
 
 // ================================================
+// PERFIL DO USUÁRIO LOGADO (nome completo + apelido)
+// ================================================
+
+let perfilUsuarioCache = null; // { nome_completo, apelido }
+
+async function carregarPerfilUsuario(userId) {
+    try {
+        const { data } = await supabaseClient
+            .from(CONFIG.TABLES.USUARIOS)
+            .select('nome_completo, apelido')
+            .eq('id', userId)
+            .maybeSingle();
+        perfilUsuarioCache = data || null;
+    } catch (_) {
+        perfilUsuarioCache = null;
+    }
+    return perfilUsuarioCache;
+}
+
+/** Nome para saudação: apelido → primeiro nome → vazio. Nunca o e-mail. */
+function nomeParaSaudacao(perfil) {
+    if (perfil?.apelido) return perfil.apelido;
+    if (perfil?.nome_completo) return perfil.nome_completo.split(' ')[0];
+    return '';
+}
+
+// ================================================
 // ROTEAMENTO PÓS-LOGIN (RBAC)
 // ================================================
 
@@ -125,22 +165,14 @@ async function routeByRole(user, role) {
 
     const needsOnboarding = await checkOnboarding(user, role);
     if (needsOnboarding) {
+        preencherOnboardingComMetadados(user);
         UIModule.showScreen('onboardingScreen');
         return;
     }
 
-    await garantirClienteExiste(user);
+    await garantirClienteProvisionado(user);
 
-    try {
-        const { data: usuario } = await supabaseClient
-            .from(CONFIG.TABLES.USUARIOS)
-            .select('apelido')
-            .eq('id', user.id)
-            .maybeSingle();
-        if (usuario?.apelido) {
-            UIModule.setText('clientNameDisplay', usuario.apelido);
-        }
-    } catch (_) {}
+    UIModule.setText('clientNameDisplay', nomeParaSaudacao(perfilUsuarioCache));
 
     ClientModule.setClientId(user.id);
     await populateCategorySelect();
@@ -152,35 +184,34 @@ async function routeByRole(user, role) {
     }
 }
 
-async function garantirClienteExiste(user) {
+/**
+ * Rede de segurança para contas antigas: se o usuário já tem nome em
+ * `usuarios` mas falta a linha em `clientes` (ou o perfil 'client'),
+ * a RPC complete_signup completa tudo de uma vez no banco.
+ */
+async function garantirClienteProvisionado(user) {
     try {
-        const { data: jaExiste, error: selectError } = await supabaseClient
+        const { data: jaExiste, error } = await supabaseClient
             .from(CONFIG.TABLES.CLIENTES)
             .select('id')
             .eq('id', user.id)
             .maybeSingle();
 
-        if (selectError) throw selectError;
+        if (error) throw error;
         if (jaExiste) return;
 
-        const { data: usuario } = await supabaseClient
-            .from(CONFIG.TABLES.USUARIOS)
-            .select('nome_completo, apelido')
-            .eq('id', user.id)
-            .maybeSingle();
+        const perfil = perfilUsuarioCache || await carregarPerfilUsuario(user.id);
+        if (!perfil?.nome_completo) return;
 
-        const nome = usuario?.nome_completo || usuario?.apelido || user.email?.split('@')[0] || 'Cliente';
-
-        const { error: rpcError } = await supabaseClient.rpc('reconciliar_cliente_no_registro', {
-            p_nome:  nome,
-            p_email: user.email
+        const { error: rpcError } = await supabaseClient.rpc('complete_signup', {
+            p_full_name: perfil.nome_completo,
+            p_nickname:  perfil.apelido || ''
         });
-
         if (rpcError) throw rpcError;
 
-        console.log('✅ garantirClienteExiste: linha em clientes criada/reconciliada retroativamente para', user.email);
+        console.log('✅ garantirClienteProvisionado: cadastro completado para', user.email);
     } catch (error) {
-        console.error('❌ garantirClienteExiste: falha ao verificar/criar linha em clientes:', error.message);
+        console.error('❌ garantirClienteProvisionado:', error.message);
     }
 }
 
@@ -197,7 +228,7 @@ async function handleLogin(event) {
     if (errorEl) { errorEl.textContent = ''; errorEl.classList.add('hidden'); }
 
     if (!email || !password) {
-        showLoginError('Preenche o email e a senha.');
+        showLoginError('Preencha o e-mail e a senha.');
         return;
     }
 
@@ -212,13 +243,13 @@ async function handleLogin(event) {
 
         if (msg.includes('Invalid login credentials') || msg.includes('invalid_credentials')) {
             showLoginError(
-                'Email não encontrado ou senha incorreta.',
-                `Não tens conta? <a href="#" onclick="toggleScreen('registerScreen'); return false;" style="color:#6495ff; font-weight:700;">Criar conta grátis</a>`
+                'E-mail não encontrado ou senha incorreta.',
+                `Não tem conta? <a href="#" onclick="toggleScreen('registerScreen'); return false;" style="color:#6495ff; font-weight:700;">Criar conta grátis</a>`
             );
         } else if (msg.includes('Email not confirmed')) {
-            showLoginError('Email ainda não confirmado. Verifica a tua caixa de entrada.');
+            showLoginError('E-mail ainda não confirmado. Verifique sua caixa de entrada.');
         } else {
-            showLoginError(msg || 'Erro ao entrar. Tenta novamente.');
+            showLoginError(msg || 'Erro ao entrar. Tente novamente.');
         }
     } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Entrar'; }
@@ -233,8 +264,18 @@ function showLoginError(msg, extra = '') {
     }
 }
 
+/** Traduz os erros do trigger de validação de nomes do banco. */
+function traduzirErroNomes(msg) {
+    if (!msg) return '';
+    if (msg.includes('name_equals_email'))     return 'O nome não pode ser igual ao seu e-mail.';
+    if (msg.includes('nickname_equals_email')) return 'O apelido não pode ser igual ao seu e-mail.';
+    if (msg.includes('name_required'))         return 'Informe o seu nome completo.';
+    return msg;
+}
+
 // ================================================
-// CADASTRO — USUARIOS + USUARIOS_PERFIS
+// CADASTRO — o banco cria usuarios + perfil + clientes
+// (trigger on_auth_user_created)
 // ================================================
 
 async function handleRegister(event) {
@@ -255,44 +296,38 @@ async function handleRegister(event) {
     if (errorEl) errorEl.classList.add('hidden');
 
     if (!nome || !apelido || !email || !password) {
-        showErr('Preenche todos os campos.'); return;
+        showErr('Preencha todos os campos.'); return;
     }
-    if (password.length < 6) { showErr('Senha mínima de 6 caracteres.'); return; }
+
+    const erroNomes = validarNomesUsuario(nome, apelido, email);
+    if (erroNomes) { showErr(erroNomes); return; }
+
+    if (password.length < 6) { showErr('A senha precisa ter no mínimo 6 caracteres.'); return; }
     if (password !== confirm) { showErr('As senhas não coincidem.'); return; }
 
     const btn = event.target.querySelector('button[type="submit"]');
     if (btn) { btn.disabled = true; btn.textContent = 'Criando conta...'; }
 
     try {
-        const user = await AuthModule.register(email, password);
+        const { session } = await AuthModule.register(email, password, { fullName: nome, nickname: apelido });
 
-        await supabaseClient.from(CONFIG.TABLES.USUARIOS).insert([{
-            id:            user.id,
-            nome_completo: nome,
-            apelido:       apelido,
-            created_at:    new Date().toISOString()
-        }]);
+        if (session) {
+            // Confirmação de e-mail desligada: já entra direto.
+            UIModule.showSuccess(`Conta criada! Bem-vindo, ${apelido}!`);
+            await routeByRole(session.user, 'client');
+            return;
+        }
 
-        await supabaseClient.from(CONFIG.TABLES.USUARIOS_PERFIS).insert([{
-            usuario_id: user.id,
-            perfil:     'client',
-            created_at: new Date().toISOString()
-        }]);
-
-        await supabaseClient.rpc('reconciliar_cliente_no_registro', {
-            p_nome:  nome,
-            p_email: email
-        });
-
-        UIModule.showSuccess(`Conta criada! Bem-vindo, ${apelido}! Faz login agora.`);
-        setTimeout(() => UIModule.showScreen('loginScreen'), 2000);
+        UIModule.showSuccess(`Conta criada, ${apelido}! Confirme seu e-mail e depois faça login.`);
+        event.target.reset();
+        setTimeout(() => UIModule.showScreen('loginScreen'), 2500);
 
     } catch (error) {
         const msg = error.message || '';
         if (msg.includes('already registered') || msg.includes('already been registered')) {
-            showErr('Este email já tem uma conta. Faz login.');
+            showErr('Este e-mail já tem uma conta. Faça login.');
         } else {
-            showErr(msg || 'Erro ao criar conta.');
+            showErr(traduzirErroNomes(msg) || 'Erro ao criar conta.');
         }
     } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Criar Conta'; }
@@ -300,24 +335,14 @@ async function handleRegister(event) {
 }
 
 // ================================================
-// ONBOARDING — USUARIOS + USUARIOS_PERFIS
+// ONBOARDING — completa o cadastro de quem entrou sem nome
 // ================================================
 
 async function checkOnboarding(user, role) {
     if (role === 'admin') return false;
 
-    try {
-        const { data } = await supabaseClient
-            .from(CONFIG.TABLES.USUARIOS)
-            .select('nome_completo, apelido')
-            .eq('id', user.id)
-            .maybeSingle();
-
-        if (!data || !data.nome_completo || !data.apelido) return true;
-        return false;
-    } catch (_) {
-        return true;
-    }
+    const perfil = await carregarPerfilUsuario(user.id);
+    return !perfil?.nome_completo || !perfil?.apelido;
 }
 
 async function handleOnboarding(event) {
@@ -326,54 +351,22 @@ async function handleOnboarding(event) {
     const apelido = document.getElementById('onboardingApelido').value.trim();
     const user    = AuthModule.getUser();
 
-    if (!nome || !apelido) { UIModule.showError('Preenche todos os campos'); return; }
+    if (!nome || !apelido) { UIModule.showError('Preencha todos os campos.'); return; }
+
+    const erroNomes = validarNomesUsuario(nome, apelido, user?.email);
+    if (erroNomes) { UIModule.showError(erroNomes); return; }
 
     const btn = event.target.querySelector('button[type="submit"]');
     if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
 
     try {
-        const { error: usuarioError } = await supabaseClient
-            .from(CONFIG.TABLES.USUARIOS)
-            .upsert({
-                id:            user.id,
-                nome_completo: nome,
-                apelido:       apelido,
-                created_at:    new Date().toISOString()
-            });
-        if (usuarioError) throw usuarioError;
+        const { error } = await supabaseClient.rpc('complete_signup', {
+            p_full_name: nome,
+            p_nickname:  apelido
+        });
+        if (error) throw error;
 
-        const { data: jaTemPerfil, error: selectError } = await supabaseClient
-            .from(CONFIG.TABLES.USUARIOS_PERFIS)
-            .select('id')
-            .eq('usuario_id', user.id)
-            .maybeSingle();
-        if (selectError) throw selectError;
-
-        if (!jaTemPerfil) {
-            const { error: insertError } = await supabaseClient
-                .from(CONFIG.TABLES.USUARIOS_PERFIS)
-                .insert([{
-                    usuario_id: user.id,
-                    perfil:     'client',
-                    created_at: new Date().toISOString()
-                }]);
-            if (insertError) throw insertError;
-        }
-
-        const { data: jaExisteCliente } = await supabaseClient
-            .from(CONFIG.TABLES.CLIENTES)
-            .select('id')
-            .eq('id', user.id)
-            .maybeSingle();
-
-        if (!jaExisteCliente) {
-            const { error: rpcError } = await supabaseClient.rpc('reconciliar_cliente_no_registro', {
-                p_nome:  nome,
-                p_email: user.email
-            });
-            if (rpcError) throw rpcError;
-        }
-
+        await carregarPerfilUsuario(user.id);
         UIModule.showSuccess(`Bem-vindo, ${apelido}! 🎉`);
 
         ClientModule.setClientId(user.id);
@@ -387,7 +380,7 @@ async function handleOnboarding(event) {
         }
     } catch (error) {
         console.error('❌ Erro em handleOnboarding:', error);
-        UIModule.showError(error.message || 'Erro ao salvar perfil');
+        UIModule.showError(traduzirErroNomes(error.message) || 'Erro ao salvar perfil');
     } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Continuar →'; }
     }
@@ -398,7 +391,7 @@ async function handleOnboarding(event) {
 // ================================================
 
 async function handleLogout() {
-    if (!confirm('Tens a certeza que queres sair?')) return;
+    if (!confirm('Tem certeza que deseja sair?')) return;
 
     try {
         await AuthModule.logout();
@@ -412,17 +405,47 @@ async function handleLogout() {
 // PAINEL CLIENTE — DASHBOARD
 // ================================================
 
+/**
+ * "🧭 Para onde foi o dinheiro" — complementa os valores que o
+ * DashboardModule já preenche com o % de cada grupo sobre a renda do
+ * período e a Taxa de Poupança (substitui os antigos blocos "Renda
+ * Passiva"/"Índice de Cobertura", que ficavam sempre zerados porque
+ * `categorias` não distingue renda ativa de passiva).
+ */
+function preencherAnaliseCliente() {
+    const m = DashboardModule.getData()?.metrics;
+    if (!m) return;
+    const renda = m.totalReceitas || 0;
+    const pct = (v) => renda > 0 ? `${((v / renda) * 100).toFixed(0)}% da renda` : (v > 0 ? 'sem receitas no período' : '');
+    UIModule.setText('biSurvivalPct',    pct(m.custoDeSobrevivencia));
+    UIModule.setText('biLifestylePct',   pct(m.custoDeVida));
+    UIModule.setText('biInvestmentsPct', pct(m.aportesInvestimento));
+    UIModule.setText('biDebtPct',        pct(m.custoDivida));
+
+    const el = document.getElementById('biSavingsRate');
+    if (!el) return;
+    el.classList.remove('bi-value--bom', 'bi-value--atencao', 'bi-value--ruim');
+    if (renda <= 0) {
+        el.textContent = '—';
+        UIModule.setText('biSavingsRateDetail', 'registre suas receitas para calcular');
+        return;
+    }
+    // Poupança = o que sobrou + o que foi investido, sobre a renda.
+    const taxa = ((m.saldoDisponivel + m.aportesInvestimento) / renda) * 100;
+    el.textContent = `${taxa.toFixed(0)}%`;
+    el.classList.add(taxa >= 20 ? 'bi-value--bom' : taxa >= 0 ? 'bi-value--atencao' : 'bi-value--ruim');
+    UIModule.setText('biSavingsRateDetail',
+        taxa >= 20 ? 'ótimo — meta de 20% alcançada'
+        : taxa >= 0 ? `faltam ${(20 - taxa).toFixed(0)} p.p. para a meta de 20%`
+        : 'gastou mais do que ganhou');
+}
+
 async function loadClientDashboard() {
     const clientId = ClientModule.getClientId();
     const user     = AuthModule.getUser();
 
-    try {
-        const { data: usuario } = await supabaseClient
-            .from(CONFIG.TABLES.USUARIOS).select('apelido').eq('id', user.id).maybeSingle();
-        UIModule.setText('clientNameDisplay', usuario?.apelido || user?.email?.split('@')[0] || 'Cliente');
-    } catch (_) {
-        UIModule.setText('clientNameDisplay', user?.email?.split('@')[0] || 'Cliente');
-    }
+    const perfil = perfilUsuarioCache || (user ? await carregarPerfilUsuario(user.id) : null);
+    UIModule.setText('clientNameDisplay', nomeParaSaudacao(perfil));
 
     // ─────────────────────────────────────────────────────────────
     // Cada bloco abaixo tem o seu PRÓPRIO try/catch, isolado dos
@@ -432,15 +455,29 @@ async function loadClientDashboard() {
 
     try {
         await DashboardModule.renderClientDashboard(clientId, getFiltroDashboardAtual());
+        preencherAnaliseCliente();
     } catch (error) {
         console.error('❌ loadClientDashboard (resumo/KPIs):', error);
     }
 
+    let metasCliente = [];
     try {
-        const goals = await GoalsModule.loadClientGoals(clientId);
-        GoalsModule.renderGoals('clientMetasList', goals);
+        metasCliente = await GoalsModule.loadClientGoals(clientId);
+        GoalsModule.renderGoals('clientMetasList', metasCliente);
     } catch (error) {
         console.error('❌ loadClientDashboard (metas):', error);
+    }
+
+    // Gamificação (nível, sequência, saúde, missões, cofrinhos,
+    // evolução, conquistas) — usa TODO o histórico, não o filtro de
+    // período do Resumo. Ver gamificacao.js.
+    try {
+        if (typeof GamificacaoModule !== 'undefined') {
+            const todas = DashboardModule.getData()?.todasTransacoes || [];
+            GamificacaoModule.render(todas, metasCliente, clientId);
+        }
+    } catch (error) {
+        console.error('❌ loadClientDashboard (gamificação):', error);
     }
 
     try {
@@ -503,6 +540,7 @@ async function atualizarDashboardComFiltro() {
     const clientId = ClientModule.getClientId();
     if (!clientId) return;
     await DashboardModule.renderClientDashboard(clientId, getFiltroDashboardAtual());
+    preencherAnaliseCliente();
 }
 
 function initDashboardFilters() {
@@ -621,8 +659,8 @@ async function loadClientPlanning() {
                 container.innerHTML = plannings.map(p => `
                     <div class="card" style="margin-bottom: 15px;">
                         <h3>${p.titulo}</h3>
-                        ${p.recomendacoes ? `<p style="color:#a0a0b0; margin-top:10px;">${p.recomendacoes}</p>` : ''}
-                        ${p.detalhes      ? `<p style="color:#6b7c8f; margin-top:8px; font-size:13px;">${p.detalhes}</p>` : ''}
+                        ${p.recomendacoes ? `<p style="color:#a0a0b0; margin-top:10px; white-space:pre-line;">${p.recomendacoes}</p>` : ''}
+                        ${p.detalhes      ? `<p style="color:#6b7c8f; margin-top:8px; font-size:13px; white-space:pre-line;">${p.detalhes}</p>` : ''}
                     </div>
                 `).join('');
             }
@@ -714,7 +752,7 @@ let transacaoEmEdicaoId = null;
 async function abrirModalEditarTransacao(transactionId) {
     const transacao = clienteTransacoesCache.find(t => t.id === transactionId);
     if (!transacao) {
-        UIModule.showError('Transação não encontrada — tenta recarregar a página.');
+        UIModule.showError('Transação não encontrada — tente recarregar a página.');
         return;
     }
 
@@ -825,9 +863,9 @@ async function handleSalvarEdicaoTransacao() {
     const data        = document.getElementById('editTransDate').value;
     const metaId      = document.getElementById('editTransMeta')?.value || null;
 
-    if (!categoriaId)          { UIModule.showError('Seleciona uma categoria'); return; }
-    if (!data)                 { UIModule.showError('Data é obrigatória'); return; }
-    if (!valor || valor <= 0)  { UIModule.showError('Informa um valor válido'); return; }
+    if (!categoriaId)          { UIModule.showError('Selecione uma categoria'); return; }
+    if (!data)                 { UIModule.showError('A data é obrigatória'); return; }
+    if (!valor || valor <= 0)  { UIModule.showError('Informe um valor válido'); return; }
 
     const btn = document.getElementById('btnSalvarEdicaoTransacao');
     if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
@@ -872,7 +910,7 @@ async function handleDeletarTransacaoRapido(transactionId) {
 }
 
 async function excluirTransacaoComConfirmacao(transactionId, aoConcluir) {
-    if (!confirm('Tens a certeza que queres excluir esta transação? Esta ação não pode ser desfeita.')) return;
+    if (!confirm('Tem certeza que deseja excluir esta transação? Esta ação não pode ser desfeita.')) return;
 
     try {
         await ClientModule.deleteTransaction(transactionId);
@@ -906,8 +944,8 @@ async function handleAddTransaction(event) {
     const descricao   = document.getElementById('transDescription').value;
     const metaId      = document.getElementById('transMeta')?.value || null;
 
-    if (!categoriaId) { UIModule.showError('Seleciona uma categoria'); return; }
-    if (!data)         { UIModule.showError('Data é obrigatória'); return; }
+    if (!categoriaId) { UIModule.showError('Selecione uma categoria'); return; }
+    if (!data)         { UIModule.showError('A data é obrigatória'); return; }
 
     try {
         const categorias = await DatabaseModule.getCategorias();
@@ -947,10 +985,10 @@ async function handleAddTransaction(event) {
 
         document.getElementById('transDescription')?.focus();
 
-        UIModule.showSuccess('Transação registada!');
+        UIModule.showSuccess('Transação registrada!');
         await loadClientDashboard();
     } catch (error) {
-        UIModule.showError(error.message || 'Erro ao registar transação');
+        UIModule.showError(error.message || 'Erro ao registrar transação');
     }
 }
 
@@ -1025,11 +1063,16 @@ async function handleAddMeta(event) {
 }
 
 // ── PERFIL CLIENTE ──
+// Nome completo, apelido e e-mail em linhas separadas — o e-mail
+// nunca aparece no lugar do nome.
 
-function showClientProfile() {
-    const user = AuthModule.getUser();
-    UIModule.setText('profileClientName', user?.user_metadata?.name || user?.email || 'Cliente');
-    UIModule.setText('profileClientEmail', user?.email || '');
+async function showClientProfile() {
+    const user   = AuthModule.getUser();
+    const perfil = perfilUsuarioCache || (user ? await carregarPerfilUsuario(user.id) : null);
+
+    UIModule.setText('profileClientName',     perfil?.nome_completo || 'Nome não informado');
+    UIModule.setText('profileClientNickname', perfil?.apelido       || '—');
+    UIModule.setText('profileClientEmail',    user?.email           || '');
     UIModule.openModal('clientProfileModal');
 }
 
@@ -1283,11 +1326,91 @@ function initTransCategoryRetry() {
     });
 }
 
+/**
+ * Campo de mensagem: cresce sozinho conforme o texto (até ~6 linhas).
+ * Enter envia / Shift+Enter quebra linha já é tratado em
+ * mensagens-cliente.js.
+ */
+function initAutoResizeMensagem() {
+    const campo = document.getElementById('mensagemTexto');
+    if (!campo) return;
+    const ajustar = () => {
+        campo.style.height = 'auto';
+        campo.style.height = Math.min(campo.scrollHeight, 160) + 'px';
+    };
+    campo.addEventListener('input', ajustar);
+}
+
+// ================================================
+// LOGIN COM GOOGLE (Supabase OAuth)
+// ================================================
+// Requer o provedor Google ATIVO em Supabase → Authentication →
+// Sign In / Providers → Google (Client ID + Secret do Google Cloud) e
+// a URL deste site em Authentication → URL Configuration → Redirect URLs.
+// Na volta do Google, o supabase-js lê o token da URL e o
+// initializeApp() → checkSession() segue o fluxo normal: conta nova cai
+// no onboarding (nome/apelido), conta existente vai direto ao painel.
+async function loginComGoogle() {
+    const botoes = document.querySelectorAll('.btn-google');
+    botoes.forEach(b => { b.disabled = true; });
+    try {
+        const { error } = await supabaseClient.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+                redirectTo: window.location.origin + window.location.pathname,
+                queryParams: { prompt: 'select_account' }
+            }
+        });
+        if (error) throw error;
+    } catch (error) {
+        botoes.forEach(b => { b.disabled = false; });
+        const msg = /provider is not enabled|Unsupported provider/i.test(error.message || '')
+            ? 'Login com Google ainda não está ativado. Use e-mail e senha por enquanto.'
+            : 'Não foi possível entrar com Google. Tente novamente.';
+        mostrarErroLogin(msg);
+        console.error('❌ loginComGoogle:', error);
+    }
+}
+
+function mostrarErroLogin(msg) {
+    const el = document.getElementById('loginError');
+    if (el) { el.textContent = msg; el.classList.remove('hidden'); }
+    else UIModule.showError(msg);
+}
+
+/** Se o Google/Supabase devolveu erro na URL (?error=... ou #error=...), mostra no login. */
+function tratarRetornoOAuth() {
+    const params = new URLSearchParams(window.location.search + '&' + window.location.hash.replace(/^#/, ''));
+    const erro = params.get('error_description') || params.get('error');
+    if (!erro) return;
+    console.error('❌ Retorno OAuth:', erro);
+    const msg = /database error/i.test(erro)
+        ? 'Sua conta Google foi reconhecida, mas o cadastro não pôde ser concluído. Avise o administrador.'
+        : 'Não foi possível entrar com Google: ' + erro.replace(/\+/g, ' ');
+    history.replaceState(null, '', window.location.pathname);
+    setTimeout(() => mostrarErroLogin(msg), 0);
+}
+
+/** Onboarding de conta Google: já sugere o nome que veio do Google. */
+function preencherOnboardingComMetadados(user) {
+    const meta = user?.user_metadata || {};
+    const nome = (meta.full_name || meta.name || '').trim();
+    const campoNome = document.getElementById('onboardingNome');
+    const campoApelido = document.getElementById('onboardingApelido');
+    if (campoNome && !campoNome.value && nome && nome.toLowerCase() !== (user.email || '').toLowerCase()) {
+        campoNome.value = nome;
+    }
+    if (campoApelido && !campoApelido.value && nome) {
+        campoApelido.value = (meta.given_name || nome.split(' ')[0] || '').trim();
+    }
+}
+
 async function initializeApp() {
     initTransCategoryRetry();
     initHistoryFilters();
     initDashboardFilters();
     initEditCategoryDropdown();
+    initAutoResizeMensagem();
     religarReposicionamentoAoRedimensionar();
     religarFechamentoAoRolar();
 
@@ -1295,11 +1418,18 @@ async function initializeApp() {
         const ok = await waitForSupabase();
         if (!ok) throw new Error('Supabase não inicializou');
 
+        tratarRetornoOAuth();
+
         const user = await AuthModule.checkSession();
         if (user) {
+            // Limpa o token do Google que fica no endereço após o login.
+            if (/access_token|[?&]code=/.test(window.location.href)) {
+                history.replaceState(null, '', window.location.pathname);
+            }
             await routeByRole(user, AuthModule.getUserRole());
         } else {
-            UIModule.showScreen('loginScreen');
+            // "Criar minha conta" vindo da demonstração → abre o cadastro.
+            UIModule.showScreen(window.location.hash === '#criar-conta' ? 'registerScreen' : 'loginScreen');
         }
 
         console.log('✅ App (cliente) inicializado');

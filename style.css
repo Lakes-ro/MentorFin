@@ -13,6 +13,15 @@
    ATUALIZAÇÃO — .categoria-sugestao-ia ganhou white-space: pre-line
    para suportar o aviso multi-linha de "já existe uma categoria
    parecida" (ver categoria-personalizada.js).
+
+   ATUALIZAÇÃO — CAMPO DE MENSAGEM: o botão "Enviar" herdava
+   `.btn--primary { width: 100% }` dentro de um flex e esmagava o
+   textarea até sobrar só a barra de rolagem. Agora o botão tem
+   largura automática e o textarea ocupa o resto da linha, com altura
+   mínima de 3 linhas (cresce sozinho até ~6, ver app.js).
+
+   ATUALIZAÇÃO — ROLAGEM: overscroll-behavior: contain nos elementos
+   roláveis e página travada com modal aberto (logo abaixo do reset).
    ============================================================ */
 
 /* ── Reset ─────────────────────────────────────────────────── */
@@ -20,6 +29,25 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+}
+
+/* ── Rolagem presa no elemento ─────────────────────────────────
+   Ao chegar no fim de uma lista rolável (modal, mensagens, seletor
+   de categoria, tabela de importação, menu), a rolagem não "vaza"
+   mais para a página de trás. */
+.modal,
+.modal__content,
+.mensagens-lista,
+.custom-select__panel,
+.import-review__table-wrapper,
+.sidebar,
+textarea {
+  overscroll-behavior: contain;
+}
+
+/* Com qualquer modal aberto, a página de trás fica parada. */
+body:has(.modal:not(.hidden)) {
+  overflow: hidden;
 }
 
 /* ── Variáveis ──────────────────────────────────────────────── */
@@ -614,18 +642,25 @@ input::placeholder {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 420px;
-  min-height: 160px;
+  max-height: 460px;
+  min-height: 220px;
   overflow-y: auto;
-  padding: 4px 4px 10px;
+  padding: 12px;
   margin-bottom: 15px;
+  background: rgba(10, 10, 24, 0.35);
+  border: 1px solid rgba(100, 150, 255, 0.1);
+  border-radius: var(--radius);
+}
+
+.mensagens-lista .empty-state {
+  margin: auto 0;
 }
 
 .mensagem-bolha {
   max-width: 78%;
   padding: 10px 14px;
   border-radius: 14px;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
@@ -647,26 +682,106 @@ input::placeholder {
   border-bottom-left-radius: 4px;
 }
 
+/* Linha de envio: textarea ocupa o espaço, botão fica do tamanho do
+   próprio texto (NÃO herda o width:100% de .btn--primary). */
 .mensagens-form {
   display: flex;
   gap: 10px;
   align-items: flex-end;
+  width: 100%;
 }
 
 .mensagens-form textarea {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+  min-height: 76px;
+  max-height: 160px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 10px 12px;
+  padding: 12px 14px;
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.5;
   resize: none;
   outline: none;
 }
+
 .mensagens-form textarea:focus { border-color: var(--accent); }
-.mensagens-form .btn { flex-shrink: 0; }
+
+.mensagens-form .btn,
+.mensagens-form .btn--primary {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 110px;
+  height: 46px;
+  padding: 0 22px;
+  font-size: 14px;
+}
+
+.mensagens-form .btn--primary:hover { transform: none; }
+
+.mensagens-form__dica {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Separador de dia na conversa ("Hoje", "Ontem", 12/09/2026) */
+.mensagem-dia {
+  align-self: center;
+  margin: 6px 0 2px;
+  padding: 3px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-mid);
+  background: rgba(100, 150, 255, 0.08);
+  border: 1px solid rgba(100, 150, 255, 0.15);
+  border-radius: 999px;
+}
+
+/* Conversa vazia: convite + sugestões clicáveis */
+.mensagens-vazio {
+  margin: auto 0;
+  text-align: center;
+  padding: 16px 8px;
+}
+
+.mensagens-vazio__titulo {
+  color: var(--text-primary);
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.mensagens-vazio__texto {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+
+.mensagens-sugestoes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.mensagens-sugestao {
+  background: rgba(100, 150, 255, 0.1);
+  border: 1px solid rgba(100, 150, 255, 0.3);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.mensagens-sugestao:hover { background: rgba(100, 150, 255, 0.2); }
 
 .sidebar__risk-block,
 .sidebar__plan-block {
@@ -939,13 +1054,10 @@ input::placeholder {
 
 /* ── Filtros de período (Histórico E Dashboard) ────────────────
    Reaproveitada tanto pela barra de filtros do Histórico
-   (cli-transactions) quanto pela nova barra de filtros do Dashboard
+   (cli-transactions) quanto pela barra de filtros do Dashboard
    (cli-dashboard, ver client.html/index.html + app.js
-   initDashboardFilters). Período rápido (Todos/Hoje/7 dias/Este
-   mês/Personalizado), campos de data "De"/"Até" (só aparecem quando
-   período = Personalizado) e, no Histórico, filtro por tipo. Layout
-   em grid que se adapta ao número de campos visíveis; vira coluna
-   única no mobile (ver media query). */
+   initDashboardFilters). Layout em grid que se adapta ao número de
+   campos visíveis; vira coluna única no mobile (ver media query). */
 .history-filters {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -972,7 +1084,7 @@ input::placeholder {
    Financeira do Dashboard — sem a borda inferior (não há lista longa
    logo abaixo dela dentro do mesmo card). */
 .dashboard-filters {
-  margin-bottom: 4px;
+  margin-bottom: 18px; /* mesmo respiro do botão "+ Adicionar Meta" até o bloco seguinte */
   padding-bottom: 0;
   border-bottom: none;
 }
@@ -1713,6 +1825,15 @@ input::placeholder {
   .modal__body {
     padding: 16px;
   }
+
+  /* Mensagens no celular: bolhas mais largas, botão compacto */
+  .mensagens-lista { max-height: 55vh; }
+  .mensagem-bolha  { max-width: 88%; }
+  .mensagens-form .btn,
+  .mensagens-form .btn--primary {
+    min-width: 0;
+    padding: 0 16px;
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -1809,3 +1930,410 @@ input::placeholder {
 
 .btn-ver-senha:hover,
 .btn-ver-senha:focus-visible { opacity: 1; }
+
+/* ══════════════════════════════════════════════════════════════
+   GAMIFICAÇÃO — nível, sequência, saúde, missões, cofrinhos,
+   evolução e conquistas (ver gamificacao.js)
+   ══════════════════════════════════════════════════════════════ */
+:root {
+  --gami-ouro:    #fbbf24;
+  --gami-bom:     #34d399;
+  --gami-atencao: #fbbf24;
+  --gami-critico: #f87171;
+  --gami-receita: #1f9d8a;
+  --gami-despesa: #e0663a;
+}
+
+.gami-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.85fr) minmax(0, 1.4fr);
+  gap: 16px;
+}
+.gami-hero:empty { display: none; }
+
+.gami-card {
+  background: rgba(26, 26, 46, 0.7);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.35s ease both;
+}
+.gami-card:nth-child(2) { animation-delay: 0.05s; }
+.gami-card:nth-child(3) { animation-delay: 0.1s; }
+
+.gami-rotulo {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.gami-titulo { font-size: 18px; font-weight: 800; color: #fff; line-height: 1.25; }
+.gami-sub { font-size: 12.5px; color: var(--text-mid); margin-top: 6px; line-height: 1.45; }
+.gami-sub strong { color: #fff; }
+.gami-sub--discreto { color: var(--text-muted); font-size: 11.5px; }
+
+/* Nível */
+.gami-nivel {
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(100, 150, 255, 0.22), transparent 60%),
+    rgba(26, 26, 46, 0.8);
+}
+.gami-nivel__topo { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.gami-nivel__selo {
+  width: 46px; height: 46px; flex-shrink: 0;
+  display: grid; place-items: center;
+  font-size: 20px; font-weight: 900; color: #fff;
+  background: linear-gradient(135deg, var(--accent), #8b5cf6);
+  border-radius: 14px;
+  box-shadow: 0 6px 18px rgba(100, 150, 255, 0.35);
+}
+.gami-xp-total {
+  margin-left: auto;
+  font-size: 12px; font-weight: 700;
+  color: var(--accent);
+  background: rgba(100, 150, 255, 0.12);
+  border: 1px solid rgba(100, 150, 255, 0.25);
+  padding: 4px 10px; border-radius: 999px;
+  white-space: nowrap;
+}
+
+.gami-barra {
+  height: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.gami-barra__preenchimento {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #8b5cf6);
+  border-radius: 999px;
+  transition: width 0.8s cubic-bezier(.2,.8,.2,1);
+}
+.gami-barra--fina { height: 6px; margin-top: 6px; }
+
+/* Sequência */
+.gami-sequencia__valor {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 30px; font-weight: 900; color: #fff;
+  margin: 4px 0 2px;
+}
+.gami-sequencia__fogo { font-size: 28px; animation: gamiChama 1.6s ease-in-out infinite; transform-origin: 50% 90%; }
+.gami-sequencia--pendente .gami-sequencia__fogo { animation: none; filter: grayscale(0.7); opacity: 0.6; }
+.gami-sequencia--pendente .gami-sub:first-of-type { color: var(--gami-ouro); font-weight: 600; }
+
+@keyframes gamiChama {
+  0%, 100% { transform: scale(1) rotate(-2deg); }
+  50%      { transform: scale(1.12) rotate(3deg); }
+}
+
+/* Saúde do mês */
+.gami-saude { display: flex; align-items: center; gap: 16px; }
+.gami-anel { width: 84px; height: 84px; flex-shrink: 0; }
+.gami-anel__trilho { fill: none; stroke: rgba(255, 255, 255, 0.07); stroke-width: 8; }
+.gami-anel__valor { fill: none; stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 1s ease; }
+.gami-anel__valor--otima   { stroke: var(--gami-bom); }
+.gami-anel__valor--boa     { stroke: var(--accent); }
+.gami-anel__valor--atencao { stroke: var(--gami-atencao); }
+.gami-anel__valor--critica { stroke: var(--gami-critico); }
+.gami-anel__numero { fill: #fff; font-size: 22px; font-weight: 900; font-family: inherit; }
+.gami-anel--vazio {
+  display: grid; place-items: center;
+  border-radius: 50%;
+  border: 8px solid rgba(255, 255, 255, 0.07);
+  color: var(--text-muted); font-size: 20px; font-weight: 800;
+}
+.gami-saude__texto { min-width: 0; }
+.gami-saude__label--otima   { color: var(--gami-bom); }
+.gami-saude__label--boa     { color: var(--accent); }
+.gami-saude__label--atencao { color: var(--gami-atencao); }
+.gami-saude__label--critica { color: var(--gami-critico); }
+.gami-delta { display: inline-block; font-size: 11.5px; font-weight: 700; margin-top: 2px; }
+.gami-delta--sobe  { color: var(--gami-bom); }
+.gami-delta--desce { color: var(--gami-critico); }
+
+/* Blocos de seção (missões, cofrinhos, evolução, conquistas) */
+.gami-duplo {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 20px;
+}
+.gami-secao-topo {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 14px; flex-wrap: wrap;
+}
+.gami-secao-topo h3 { margin: 0; }
+.gami-contador {
+  font-size: 12px; font-weight: 700; color: var(--text-mid);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  padding: 3px 10px; border-radius: 999px;
+}
+.gami-link {
+  background: none; border: none; color: var(--accent);
+  font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit;
+}
+.gami-link:hover { text-decoration: underline; }
+.gami-vazio { text-align: center; color: var(--text-mid); font-size: 13px; padding: 12px 0 4px; }
+.gami-vazio p { margin-bottom: 12px; }
+
+/* Missões */
+.gami-missoes { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.gami-missao {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px;
+  background: rgba(100, 150, 255, 0.05);
+  border: 1px solid rgba(100, 150, 255, 0.1);
+  border-radius: 10px;
+  transition: border-color var(--transition), background var(--transition);
+}
+.gami-missao:hover { border-color: rgba(100, 150, 255, 0.3); }
+.gami-missao__icone { font-size: 22px; width: 32px; text-align: center; flex-shrink: 0; }
+.gami-missao__corpo { flex: 1; min-width: 0; }
+.gami-missao__titulo { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
+.gami-missao__detalhe { font-size: 11.5px; color: var(--text-muted); margin-top: 4px; }
+.gami-missao__xp {
+  font-size: 11.5px; font-weight: 800; color: var(--gami-ouro);
+  white-space: nowrap; flex-shrink: 0;
+}
+.gami-missao__acao {
+  background: var(--accent); color: #fff; border: none;
+  border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+}
+.gami-missao--feita { background: rgba(52, 211, 153, 0.08); border-color: rgba(52, 211, 153, 0.3); }
+.gami-missao--feita .gami-missao__titulo { color: var(--text-mid); text-decoration: line-through; }
+.gami-missao--feita .gami-barra__preenchimento { background: var(--gami-bom); }
+.gami-missao--falhou { opacity: 0.6; }
+.gami-missao--falhou .gami-barra__preenchimento { background: var(--gami-critico); }
+.gami-barra--limite .gami-barra__preenchimento { background: linear-gradient(90deg, var(--gami-bom), var(--gami-ouro)); }
+
+/* Cofrinhos */
+.gami-cofrinhos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 14px;
+}
+.gami-cofrinho { text-align: center; min-width: 0; }
+.gami-cofrinho__pote {
+  position: relative;
+  width: 72px; height: 88px; margin: 0 auto 8px;
+  border: 2px solid rgba(100, 150, 255, 0.4);
+  border-top-width: 5px;
+  border-radius: 14px 14px 26px 26px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
+}
+.gami-cofrinho__liquido {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(180deg, rgba(100, 150, 255, 0.75), rgba(100, 150, 255, 0.35));
+  transition: height 1s cubic-bezier(.2,.8,.2,1);
+}
+.gami-cofrinho__liquido::before {
+  content: ''; position: absolute; top: -5px; left: -10%; width: 120%; height: 10px;
+  background: rgba(160, 190, 255, 0.55); border-radius: 50%;
+  animation: gamiOnda 3s ease-in-out infinite;
+}
+@keyframes gamiOnda { 0%,100% { transform: translateX(-4px); } 50% { transform: translateX(4px); } }
+.gami-cofrinho__pct {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 15px; font-weight: 900; color: #fff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+.gami-cofrinho--cheio .gami-cofrinho__pote { border-color: var(--gami-bom); box-shadow: 0 0 16px rgba(52, 211, 153, 0.35); }
+.gami-cofrinho--cheio .gami-cofrinho__liquido { background: linear-gradient(180deg, rgba(52, 211, 153, 0.85), rgba(52, 211, 153, 0.4)); }
+.gami-cofrinho__nome {
+  font-size: 12.5px; font-weight: 700; color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gami-cofrinho__valor { font-size: 11px; color: var(--text-muted); }
+
+/* Evolução (gráfico) */
+.gami-legenda { display: flex; gap: 14px; font-size: 12px; color: var(--text-mid); }
+.gami-legenda span, .gami-tooltip span { display: inline-flex; align-items: center; gap: 6px; }
+.gami-legenda i, .gami-tooltip i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.gami-grafico { position: relative; }
+.gami-grafico svg { width: 100%; height: auto; display: block; overflow: visible; }
+.gami-grafico__grade { stroke: rgba(255, 255, 255, 0.06); stroke-width: 1; }
+.gami-grafico__eixo { fill: var(--text-muted); font-size: 11px; font-family: inherit; }
+.gami-grafico__mes { fill: var(--text-mid); font-size: 12px; font-weight: 600; font-family: inherit; }
+.gami-grafico__mes--atual { fill: #fff; }
+.gami-grafico__saldo { fill: var(--text-muted); font-size: 11px; font-family: inherit; }
+.gami-grafico__alvo { fill: transparent; cursor: pointer; }
+.gami-grafico__coluna.ativa .gami-grafico__alvo { fill: rgba(255, 255, 255, 0.04); }
+.gami-grafico__coluna.ativa .gami-grafico__mes { fill: #fff; }
+.gami-tooltip {
+  position: absolute; top: 0; z-index: 5;
+  display: flex; flex-direction: column; gap: 4px;
+  min-width: 190px;
+  background: #0f1024; border: 1px solid rgba(100, 150, 255, 0.35);
+  border-radius: 8px; padding: 10px 12px;
+  font-size: 12px; color: var(--text-mid);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+.gami-tooltip strong { color: #fff; font-size: 12.5px; text-transform: capitalize; }
+.gami-tooltip b { margin-left: auto; padding-left: 12px; color: var(--text-primary); }
+.gami-tooltip b.pos { color: var(--gami-bom); }
+.gami-tooltip b.neg { color: var(--gami-critico); }
+
+/* Conquistas */
+.gami-conquistas {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+.gami-conquista {
+  text-align: center;
+  padding: 14px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+}
+.gami-conquista__icone { font-size: 28px; display: block; margin-bottom: 6px; filter: grayscale(1); opacity: 0.45; }
+.gami-conquista__nome { font-size: 12.5px; font-weight: 700; color: var(--text-muted); }
+.gami-conquista__desc { font-size: 11px; color: var(--text-muted); margin-top: 3px; line-height: 1.35; }
+.gami-conquista--ok {
+  background: linear-gradient(160deg, rgba(251, 191, 36, 0.12), rgba(100, 150, 255, 0.06));
+  border: 1px solid rgba(251, 191, 36, 0.35);
+}
+.gami-conquista--ok .gami-conquista__icone { filter: none; opacity: 1; }
+.gami-conquista--ok .gami-conquista__nome { color: #fff; }
+.gami-conquista--ok .gami-conquista__desc { color: var(--text-mid); }
+
+/* Comemorações */
+.gami-xp-flutuante {
+  position: fixed; z-index: 20000;
+  transform: translate(-50%, 0);
+  font-size: 18px; font-weight: 900; color: var(--gami-ouro);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  animation: gamiSobe 1.5s ease-out forwards;
+}
+@keyframes gamiSobe {
+  0%   { opacity: 0; transform: translate(-50%, 10px) scale(0.8); }
+  20%  { opacity: 1; transform: translate(-50%, -6px) scale(1.1); }
+  100% { opacity: 0; transform: translate(-50%, -60px) scale(1); }
+}
+.gami-banner {
+  position: fixed; left: 50%; top: 20px; z-index: 20001;
+  transform: translate(-50%, -120%);
+  background: linear-gradient(135deg, #1e2a55, #2b1f55);
+  border: 1px solid rgba(251, 191, 36, 0.5);
+  color: #fff; font-weight: 700; font-size: 14px;
+  padding: 12px 20px; border-radius: 12px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  transition: transform 0.35s cubic-bezier(.2,.8,.2,1);
+  max-width: calc(100vw - 32px); text-align: center;
+}
+.gami-banner--visivel { transform: translate(-50%, 0); }
+.gami-confete { position: fixed; inset: 0; pointer-events: none; z-index: 19999; overflow: hidden; }
+.gami-confete i {
+  position: absolute; top: -12px; width: 8px; height: 12px; border-radius: 2px;
+  animation-name: gamiCai; animation-timing-function: cubic-bezier(.25,.6,.4,1); animation-fill-mode: forwards;
+}
+@keyframes gamiCai {
+  to { transform: translate(var(--desvio), 105vh) rotate(var(--giro)); opacity: 0.2; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gami-card, .gami-sequencia__fogo, .gami-cofrinho__liquido::before { animation: none; }
+  .gami-barra__preenchimento, .gami-anel__valor, .gami-cofrinho__liquido { transition: none; }
+}
+
+/* Responsivo */
+@media (max-width: 1024px) {
+  .gami-hero { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .gami-saude { grid-column: 1 / -1; }
+}
+@media (max-width: 768px) {
+  .gami-hero, .gami-duplo { grid-template-columns: minmax(0, 1fr); }
+  .gami-saude { grid-column: auto; }
+  .gami-card { padding: 16px; }
+  .gami-sequencia__valor { font-size: 26px; }
+}
+.gami-grafico svg { width: 100%; max-width: 100%; }
+.gami-grafico__saldo.pos { fill: var(--gami-bom); }
+.gami-grafico__saldo.neg { fill: var(--gami-critico); }
+.gami-delta:not(.gami-delta--sobe):not(.gami-delta--desce) { color: var(--text-muted); }
+
+/* ═══════════════════════════════════════════════════════════════
+   ORGANIZAÇÃO DO PAINEL DO CLIENTE
+   Grupos: "Seu dinheiro" (fatos do período + evolução) e
+   "Sua jornada" (missões, cofrinhos, conquistas).
+   ═══════════════════════════════════════════════════════════════ */
+.painel-grupo {
+  display: flex; align-items: center; gap: 12px;
+  margin: 14px 0 -4px;
+}
+.painel-grupo span {
+  font-size: 12.5px; font-weight: 800; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-mid); white-space: nowrap;
+}
+.painel-grupo::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+.card__hint { font-size: 12px; color: var(--text-muted); }
+
+/* "Para onde foi o dinheiro": 4 grupos + taxa de poupança em faixa */
+#cli-dashboard .bi-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 900px) { #cli-dashboard .bi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.bi-item--destaque {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: 6px 16px; flex-wrap: wrap;
+  background: rgba(100, 150, 255, 0.09);
+}
+.bi-item--destaque .bi-label,
+.bi-item--destaque .bi-value,
+.bi-item--destaque .bi-detail { display: inline; margin: 0; }
+.bi-item--destaque .bi-value { font-size: 22px; }
+.bi-item--destaque .bi-detail { font-size: 12.5px; color: var(--text-mid); }
+.bi-value--bom     { color: var(--gami-bom) !important; }
+.bi-value--atencao { color: var(--gami-atencao) !important; }
+.bi-value--ruim    { color: var(--gami-critico) !important; }
+
+/* Missões e cofrinhos com a mesma altura, conteúdo no topo */
+.gami-duplo { align-items: stretch; }
+
+/* Impressão / PDF: mantém o tema escuro para que textos brancos
+   (anel de saúde, conquistas, títulos) não sumam no papel. */
+@media print {
+  html, body, .card, .gami-card, .gami-hero, .bi-item, .resume-item, .gami-conquista {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .card, .gami-duplo, .gami-hero { break-inside: avoid; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LOGIN — Google + botão de demonstração
+   ═══════════════════════════════════════════════════════════════ */
+.login-divisor {
+  display: flex; align-items: center; gap: 12px;
+  margin: 22px 0 16px; color: var(--text-muted); font-size: 12.5px;
+}
+.login-divisor::before, .login-divisor::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+.btn-google {
+  width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 12px; border-radius: var(--radius);
+  background: #fff; color: #1f1f1f; border: 1px solid #dadce0;
+  font-family: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: background var(--transition), box-shadow var(--transition);
+}
+.btn-google:hover { background: #f5f7fb; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25); }
+.btn-google:disabled { opacity: .7; cursor: wait; }
+
+.login-demo {
+  display: flex; align-items: center; gap: 12px;
+  margin-top: 22px; padding: 14px 16px;
+  border-radius: 12px; text-decoration: none;
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.12), rgba(100, 150, 255, 0.12));
+  border: 1px dashed rgba(52, 211, 153, 0.55);
+  transition: transform var(--transition), border-color var(--transition);
+}
+.login-demo:hover { transform: translateY(-2px); border-style: solid; }
+.login-demo__icone { font-size: 24px; }
+.login-demo__texto { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.login-demo__texto strong { color: #fff; font-size: 14.5px; }
+.login-demo__texto small { color: var(--text-mid); font-size: 12px; line-height: 1.35; }
+.login-demo__seta { color: var(--gami-bom); font-size: 20px; font-weight: 800; }

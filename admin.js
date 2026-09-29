@@ -2,7 +2,7 @@
  * ADMIN.JS — LÓGICA CENTRAL DO PAINEL ADMIN
  * =====================================================
  * Expõe globals usados pelos sub-módulos:
- *   currentAdmin, allClientes, loadAllClientes,
+ *   currentAdmin, allClientes, loadAllClientes, nomeExibicaoCliente,
  *   openModal, closeModal, showToast,
  *   formatCurrency, formatDate
  * Padrão: script global (sem import/export ES module).
@@ -12,6 +12,17 @@
  * .app-body, classe exclusiva do admin.html) para que, mesmo que
  * alguém volte a incluir este script noutra página por engano,
  * ele não tente redirecionar/auto-executar e cause loops.
+ *
+ * ATUALIZAÇÃO — APELIDOS, PAPEL E MÓDULOS ESQUECIDOS:
+ * - loadAllClientes() lê a view `clients_admin_view` (clientes +
+ *   apelido). Cada cliente ganha `nomeCompleto`, `apelido` e `nome`
+ *   = rótulo de exibição ("Apelido (Nome Completo)"), para que todas
+ *   as telas que já usam `c.nome` passem a mostrar o apelido sem
+ *   precisar mexer em cada uma.
+ * - O acesso ao painel é decidido pelo perfil 'admin' em
+ *   usuarios_perfis (banco), não mais pelo e-mail no código.
+ * - initNotificacoesAdmin() e initMensagensAdmin() existiam mas nunca
+ *   eram chamadas — o sino e o envio de mensagens não funcionavam.
  */
 
 // ── Estado compartilhado ──────────────────────────────────────
@@ -70,22 +81,122 @@ function formatDate(dateStr) {
   });
 }
 
+/**
+ * Rótulo do cliente em listas, selects e títulos:
+ * "Apelido (Nome Completo)" — ou só o nome, quando não há apelido ou
+ * ele é igual ao nome.
+ */
+function nomeExibicaoCliente(nomeCompleto, apelido) {
+  const nome = (nomeCompleto || '').trim();
+  const apel = (apelido || '').trim();
+  if (!apel || apel.toLowerCase() === nome.toLowerCase()) return nome || apel || 'Cliente';
+  return nome ? `${apel} (${nome})` : apel;
+}
+
 async function loadAllClientes() {
   if (!currentAdmin?.id) return;
   try {
     const { data, error } = await supabaseClient
-      .from('clientes')
-      .select('id, nome, email, cpf, telefone')
+      .from('clients_admin_view')
+      .select('id, nome, apelido, email, cpf, telefone, risco_atual')
       .eq('admin_id', currentAdmin.id)
       .order('nome');
 
     if (error) throw error;
 
+    const clientes = (data || []).map(c => ({
+      ...c,
+      nomeCompleto: c.nome,
+      nome:         nomeExibicaoCliente(c.nome, c.apelido)
+    }));
+
     // Muta o array compartilhado em vez de reatribuir
-    allClientes.splice(0, allClientes.length, ...(data || []));
+    allClientes.splice(0, allClientes.length, ...clientes);
   } catch (err) {
     console.error('❌ loadAllClientes:', err.message);
   }
+}
+
+// ══════════════════════════════════════════════════════════════
+// BUSCA DE CLIENTES (seções Clientes e Dashboards)
+// ══════════════════════════════════════════════════════════════
+// Cada card de cliente leva um atributo `data-busca` com apelido,
+// nome, e-mail, telefone e CPF já normalizados (sem acento, minúsculo,
+// com a versão só-dígitos do telefone/CPF). A busca só esconde/mostra
+// cards já renderizados — nenhuma consulta nova ao banco.
+
+function normalizarBusca(texto) {
+  return String(texto || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+/** Texto pesquisável de um cliente — vai no atributo data-busca do card. */
+function textoBuscaCliente(c) {
+  const digitos = `${c.telefone || ''} ${c.cpf || ''}`.replace(/\D/g, '');
+  return escaparHtml(normalizarBusca(
+    [c.apelido, c.nomeCompleto, c.email, c.telefone, c.cpf, digitos].filter(Boolean).join(' ')
+  ));
+}
+
+/**
+ * Aplica o termo atual do campo de busca na grade: todas as palavras
+ * digitadas precisam aparecer (em qualquer ordem). Mostra "x de y" no
+ * contador e um aviso quando nada bate.
+ */
+function aplicarBuscaClientes(inputId, gridId, contadorId) {
+  const grid = document.getElementById(gridId);
+  if (!grid) return;
+
+  const termo   = normalizarBusca(document.getElementById(inputId)?.value);
+  const palavras = termo.split(/\s+/).filter(Boolean);
+  const termoDigitos = termo.replace(/\D/g, '');
+  const cards   = [...grid.querySelectorAll('[data-busca]')];
+
+  let visiveis = 0;
+  cards.forEach(card => {
+    const alvo = card.dataset.busca || '';
+    const bate = !palavras.length
+      || palavras.every(p => alvo.includes(p))
+      || (termoDigitos.length >= 3 && alvo.includes(termoDigitos));
+    card.classList.toggle('hidden', !bate);
+    if (bate) visiveis++;
+  });
+
+  let aviso = grid.querySelector('.busca-sem-resultado');
+  if (palavras.length && !visiveis && cards.length) {
+    if (!aviso) {
+      aviso = document.createElement('p');
+      aviso.className = 'empty-state busca-sem-resultado';
+      grid.appendChild(aviso);
+    }
+    aviso.textContent = `Nenhum cliente encontrado para "${document.getElementById(inputId).value.trim()}".`;
+  } else {
+    aviso?.remove();
+  }
+
+  const contador = document.getElementById(contadorId);
+  if (contador) {
+    contador.textContent = palavras.length && cards.length
+      ? `${visiveis} de ${cards.length} cliente(s)`
+      : '';
+  }
+}
+
+/** Liga o campo de busca (digitar filtra na hora; Esc limpa). */
+function ligarBuscaClientes(inputId, gridId, contadorId) {
+  const input = document.getElementById(inputId);
+  if (!input || input._buscaLigada) return;
+  input._buscaLigada = true;
+
+  input.addEventListener('input', () => aplicarBuscaClientes(inputId, gridId, contadorId));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      input.value = '';
+      aplicarBuscaClientes(inputId, gridId, contadorId);
+    }
+  });
 }
 
 // ── Fechar modais ao clicar no overlay ou no botão ✕ ─────────
@@ -135,6 +246,30 @@ const AdminModule = (() => {
     });
   }
 
+  // ── Papel: decidido pelo banco (usuarios_perfis) ────────────
+  async function isAdmin(userId) {
+    const { data, error } = await supabaseClient
+      .from('usuarios_perfis')
+      .select('perfil')
+      .eq('usuario_id', userId)
+      .eq('perfil', 'admin')
+      .maybeSingle();
+    return !error && !!data;
+  }
+
+  async function carregarNomeAdmin(userId) {
+    try {
+      const { data } = await supabaseClient
+        .from('usuarios')
+        .select('nome_completo, apelido')
+        .eq('id', userId)
+        .maybeSingle();
+      return data?.apelido || data?.nome_completo || 'Administrador';
+    } catch (_) {
+      return 'Administrador';
+    }
+  }
+
   // ── Inicialização ────────────────────────────────────────────
   async function init() {
     // Aguarda Supabase
@@ -156,16 +291,15 @@ const AdminModule = (() => {
 
     const user = session.user;
 
-    // Verifica se é o admin autorizado
-    if (user.email !== CONFIG.ADMIN.EMAIL) {
+    if (!(await isAdmin(user.id))) {
       showToast('Acesso não autorizado.', 'error');
       await supabaseClient.auth.signOut();
       window.location.href = 'index.html';
       return;
     }
 
-    // Define admin global
-    currentAdmin = { id: user.id, email: user.email, nome: user.email.split('@')[0] };
+    // Define admin global — nome vem de `usuarios`, nunca do e-mail
+    currentAdmin = { id: user.id, email: user.email, nome: await carregarNomeAdmin(user.id) };
 
     // Preenche header
     const subtitle = document.getElementById('admin-subtitle');
@@ -190,12 +324,14 @@ const AdminModule = (() => {
     if (typeof initPrivacidade   === 'function') initPrivacidade();
 
     // Inicia sub-módulos (definidos nos outros scripts)
-    if (typeof initClientes      === 'function') initClientes();
-    if (typeof initCategorias    === 'function') initCategorias();
-    if (typeof initDashboards    === 'function') initDashboards();
-    if (typeof initMetas         === 'function') initMetas();
-    if (typeof initPlanejamentos === 'function') initPlanejamentos();
-    if (typeof initRazonete      === 'function') initRazonete();
+    if (typeof initClientes          === 'function') initClientes();
+    if (typeof initCategorias        === 'function') initCategorias();
+    if (typeof initDashboards        === 'function') initDashboards();
+    if (typeof initMetas             === 'function') initMetas();
+    if (typeof initPlanejamentos     === 'function') initPlanejamentos();
+    if (typeof initRazonete          === 'function') initRazonete();
+    if (typeof initMensagensAdmin    === 'function') initMensagensAdmin();
+    if (typeof initNotificacoesAdmin === 'function') initNotificacoesAdmin();
 
     console.log('✅ Admin inicializado:', currentAdmin.email);
   }
