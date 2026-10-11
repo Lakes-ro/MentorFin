@@ -31,6 +31,16 @@
  *     relevante (Clientes / Categorias / Dashboards — já abrindo o
  *     dashboard do cliente certo quando for notificação de risco).
  *   - "Marcar todas como lidas" zera o badge de uma vez.
+ *
+ * ATUALIZAÇÃO — SOM E AVISOS (out/2026):
+ *   - Toda notificação nova toca um som (som.js): 💬 mensagem, 🔴 risco
+ *     vermelho com som de alerta, o resto com o som padrão. Botão 🔊 no
+ *     cabeçalho do painel liga/desliga (vale para este navegador).
+ *   - "(n)" no título da aba com o total de não lidas.
+ *   - Aba em segundo plano → notificação do sistema (botão "Avisar com a
+ *     aba em segundo plano" pede a permissão uma vez).
+ *   - Mensagem de um cliente cuja conversa JÁ está aberta na tela entra
+ *     como lida (antes ficava acumulando no sino sem motivo).
  */
 
 let notifPainelAberto = false;
@@ -41,12 +51,28 @@ const NOTIF_ICONE = {
   nova_categoria: '🏷️',
   risco_amarelo:  '🟡',
   risco_vermelho: '🔴',
-  nova_mensagem:  '💬'
+  nova_mensagem:  '💬',
+  solicitacao_planejamento: '📋',
+  cliente_inativo: '💤'
 };
 
 function initNotificacoesAdmin() {
   document.getElementById('btn-notificacoes')?.addEventListener('click', toggleNotifPainel);
   document.getElementById('btn-marcar-todas-lidas')?.addEventListener('click', marcarTodasComoLidas);
+  document.getElementById('btn-notif-sistema')?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await ativarPushAdmin();
+  });
+  document.getElementById('btn-notif-teste')?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await testarPushAdmin();
+  });
+  atualizarBotaoAvisoSistemaAdmin();
+  // Permissão já dada: renova a inscrição deste aparelho a cada login
+  if (typeof PushModule !== 'undefined' && PushModule.permissao() === 'granted') {
+    PushModule.inscrever('admin').then(atualizarBotaoAvisoSistemaAdmin);
+  }
+  if (typeof SomModule !== 'undefined') SomModule.atualizarBotoes();
 
   // Fecha o painel ao clicar fora dele
   document.addEventListener('click', (e) => {
@@ -58,6 +84,65 @@ function initNotificacoesAdmin() {
 
   carregarNotificacoes();
   ligarRealtimeNotificacoes();
+  // Rede de segurança: se o Realtime cair, confere a cada minuto
+  setInterval(conferirNovasNotificacoes, 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) conferirNovasNotificacoes(); });
+}
+
+/** Ativa avisos do sistema + push (painel fechado) neste aparelho. Vem de um clique. */
+async function ativarPushAdmin() {
+  if (typeof PushModule !== 'undefined' && PushModule.suporte() === 'ios_instalar') {
+    showToast(PushModule.DICA_IOS.replace('o MentorFin', 'o painel do MentorFin'), 'success');
+    return;
+  }
+  const perm = typeof SomModule !== 'undefined'
+    ? await SomModule.pedirPermissaoSistema()
+    : ('Notification' in window ? await Notification.requestPermission() : 'unsupported');
+  if (perm === 'granted' && typeof PushModule !== 'undefined') {
+    const r = await PushModule.inscrever('admin');
+    showToast(r.ok ? '🔔 Avisos ativados neste aparelho — chegam mesmo com o painel fechado.'
+                   : 'Avisos com a aba aberta ativados. O aviso com o painel fechado não pôde ser ativado agora.',
+              r.ok ? 'success' : 'error');
+  } else if (perm === 'denied') {
+    showToast('As notificações estão bloqueadas no navegador. Libere nas configurações do site.', 'error');
+  }
+  atualizarBotaoAvisoSistemaAdmin();
+}
+
+async function testarPushAdmin() {
+  if (typeof PushModule === 'undefined') return;
+  const btn = document.getElementById('btn-notif-teste');
+  if (btn) btn.disabled = true;
+  try {
+    await PushModule.inscrever('admin');
+    const r = await PushModule.testar();
+    showToast(r.ok ? 'Aviso de teste enviado — deve aparecer em segundos.'
+                   : `O teste não saiu${r.detalhe ? ': ' + r.detalhe : ''}. Confira se a função "mentorfin-avisos" foi publicada.`,
+              r.ok ? 'success' : 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+/** Busca avisos que chegaram sem passar pelo Realtime e anuncia os novos. */
+async function conferirNovasNotificacoes() {
+  if (!currentAdmin?.id) return;
+  const conhecidas = new Set(notifCache.map(n => n.id));
+  const { data, error } = await supabaseClient
+    .from('notificacoes_admin')
+    .select('id, tipo, titulo, mensagem, client_id, lida, created_at')
+    .eq('admin_id', currentAdmin.id)
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (error || !data) return;
+  const novas = data.filter(n => !conhecidas.has(n.id) && !n.lida);
+  notifCache = data;
+  renderNotifLista();
+  atualizarBadge();
+  if (!novas.length || !conhecidas.size) return;
+  const n = novas[0];
+  showToast(`${NOTIF_ICONE[n.tipo] || '🔔'} ${novas.length > 1 ? novas.length + ' avisos novos' : n.titulo}`, 'success');
+  if (typeof SomModule !== 'undefined') SomModule.tocar(SOM_POR_TIPO[n.tipo] || 'notificacao');
 }
 
 async function carregarNotificacoes() {
@@ -93,7 +178,24 @@ function atualizarBadge() {
   } else {
     badge.classList.add('hidden');
   }
+  if (typeof SomModule !== 'undefined') SomModule.contadorTitulo(naoLidas);
 }
+
+/** Botão "Avisar com a aba em segundo plano" (permissão do sistema). */
+function atualizarBotaoAvisoSistemaAdmin() {
+  const btn = document.getElementById('btn-notif-sistema');
+  if (!btn) return;
+  const perm = 'Notification' in window ? Notification.permission : 'unsupported';
+  const sup  = typeof PushModule !== 'undefined' ? PushModule.suporte() : (perm === 'unsupported' ? 'sem_suporte' : 'ok');
+  btn.classList.toggle('hidden', sup === 'sem_suporte' || (sup === 'ok' && perm === 'granted'));
+  btn.textContent = sup === 'ios_instalar' ? '📲 Como receber avisos no iPhone'
+    : perm === 'denied' ? '🔕 Avisos bloqueados no navegador'
+    : '📲 Receber avisos mesmo com o painel fechado';
+  btn.disabled = sup === 'ok' && perm === 'denied';
+  document.getElementById('btn-notif-teste')?.classList.toggle('hidden', !(sup === 'ok' && perm === 'granted'));
+}
+
+const SOM_POR_TIPO = { nova_mensagem: 'mensagem', risco_vermelho: 'alerta' };
 
 function formatarTempoRelativo(dataStr) {
   const agora   = new Date();
@@ -162,8 +264,20 @@ async function handleClickNotificacao(id, clientId, tipo) {
     return;
   }
 
+  // Cliente parado -> abre a conversa para mandar um incentivo
+  if (tipo === 'cliente_inativo' && clientId) {
+    if (!allClientes.length) await loadAllClientes();
+    const cliente = allClientes.find(c => c.id === clientId);
+    if (cliente && typeof abrirModalMensagensCliente === 'function') {
+      abrirModalMensagensCliente(cliente.id, cliente.nome);
+      return;
+    }
+  }
+
   const secaoAlvo = tipo === 'novo_cliente'   ? 'clientes'
                    : tipo === 'nova_categoria' ? 'categorias'
+                   : tipo === 'solicitacao_planejamento' ? 'planejamentos'
+                   : tipo === 'cliente_inativo' ? 'clientes'
                    : 'dashboards'; // risco_amarelo / risco_vermelho
 
   document.querySelector(`.nav-item[data-section="${secaoAlvo}"]`)?.click();
@@ -242,12 +356,32 @@ function ligarRealtimeNotificacoes() {
       filter: `admin_id=eq.${currentAdmin.id}`
     }, (payload) => {
       const nova = payload.new;
+
+      // Mensagem de um cliente cuja conversa já está aberta: o admin já
+      // está lendo — entra como lida e sem toast (o som avisa que chegou).
+      const conversaAberta = nova.tipo === 'nova_mensagem' && nova.client_id
+        && typeof mensagensAdminClienteId !== 'undefined' && mensagensAdminClienteId === nova.client_id
+        && !document.getElementById('modal-mensagens-cliente')?.classList.contains('hidden');
+
       notifCache.unshift(nova);
-      renderNotifLista();
-      atualizarBadge();
-      showToast(`${NOTIF_ICONE[nova.tipo] || '🔔'} ${nova.titulo}`, nova.tipo === 'risco_vermelho' ? 'error' : 'success');
+      if (conversaAberta) {
+        marcarComoLida(nova.id);
+      } else {
+        renderNotifLista();
+        atualizarBadge();
+        showToast(`${NOTIF_ICONE[nova.tipo] || '🔔'} ${nova.titulo}`, nova.tipo === 'risco_vermelho' ? 'error' : 'success');
+      }
+
+      if (typeof SomModule !== 'undefined') {
+        SomModule.tocar(SOM_POR_TIPO[nova.tipo] || 'notificacao');
+        SomModule.avisoSistema(`${NOTIF_ICONE[nova.tipo] || '🔔'} ${nova.titulo || 'MentorFin'}`, nova.mensagem || '', `mf-admin-${nova.id}`);
+      }
     })
-    .subscribe();
+    .subscribe((status) => {
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        console.warn('⚠️ Realtime das notificações:', status, '— os avisos novos só aparecem ao recarregar.');
+      }
+    });
 }
 
 console.log('✅ notificacoes-admin.js carregado');

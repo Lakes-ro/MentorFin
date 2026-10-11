@@ -2,9 +2,18 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Gestor Financeiro Pro — Admin</title>
   <link rel="stylesheet" href="admin.css" />
+  <link rel="icon" type="image/png" href="logo.png" />
+  <!-- App instalável (necessário para avisos push no iPhone: Tela de Início) -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#6495ff">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="MentorFin">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="logo.png">
 
   <!-- ROLAGEM PRESA NO ELEMENTO — sem isto, ao chegar no fim de uma
        lista rolável (notificações, modais, mensagens, tabelas) a
@@ -71,6 +80,7 @@
     .dash-grupo-titulo span { font-size: 13px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--text-primary); }
     .dash-grupo-titulo small { font-size: 12px; color: var(--text-secondary); }
     #tab-resumo .insights-section, #tab-resumo .analise-section, #tab-resumo .chart-card--largo { margin-top: 1rem; }
+    #tab-resumo .kpi-grid { margin-top: 1rem; }
     .dash-503020 {
       margin: 1rem 0; padding: 1rem 1.1rem; border-radius: 12px;
       background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-default);
@@ -98,9 +108,114 @@
     .chart-card--largo { margin-top: 1rem; }
     .chart-container--baixo { height: 220px; }
 
+    /* ── Gráficos interativos (filtro cruzado — dashboards.js) ── */
+    .dash-dica-clique { font-size: 0.72rem; color: var(--text-secondary); margin: -4px 0 10px; }
+    .dash-filtro {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+      margin: 0 0 12px; padding: 8px 12px; border-radius: 10px;
+      background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-default);
+      font-size: 0.8rem;
+    }
+    .dash-filtro.hidden { display: none; }
+    .dash-filtro__rotulo { color: var(--text-secondary); }
+    .dash-filtro__seta { color: var(--text-secondary); }
+    .dash-filtro__chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 999px; font: inherit; font-weight: 700;
+      color: var(--text-primary); background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--cor, var(--border-default)); cursor: pointer;
+    }
+    .dash-filtro__chip--cat { cursor: default; }
+    .dash-filtro__chip i { width: 9px; height: 9px; border-radius: 50%; background: var(--cor); display: inline-block; }
+    .dash-filtro__limpar {
+      margin-left: auto; padding: 4px 10px; border-radius: 8px; font: inherit; font-size: 0.75rem;
+      color: var(--text-secondary); background: transparent; border: 1px solid var(--border-default); cursor: pointer;
+    }
+    .dash-filtro__limpar:hover { color: var(--text-primary); }
+
+    .dash-detalhe {
+      margin-top: 1rem; padding: 1rem 1.1rem; border-radius: 12px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-default); border-left: 4px solid var(--cor, #5b7cf0);
+    }
+    .dash-detalhe.hidden { display: none; }
+    .dash-detalhe__topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 0.8rem; }
+    .dash-detalhe__topo h4 { margin: 0; }
+    .dash-detalhe__sub { margin: 4px 0 0; font-size: 0.78rem; color: var(--text-secondary); }
+    .dash-detalhe__topo .dash-filtro__limpar { margin-left: 0; flex-shrink: 0; }
+    .dash-detalhe__cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; margin-bottom: 0.9rem; }
+    .dash-detalhe__cat {
+      position: relative; overflow: hidden; display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      padding: 7px 10px; border-radius: 8px; font: inherit; font-size: 0.8rem; text-align: left;
+      color: var(--text-primary); background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-default); cursor: pointer;
+    }
+    .dash-detalhe__cat:hover { border-color: var(--cor, #5b7cf0); }
+    .dash-detalhe__cat-barra { position: absolute; left: 0; top: 0; bottom: 0; opacity: 0.18; pointer-events: none; }
+    .dash-detalhe__cat-nome, .dash-detalhe__cat-valor { position: relative; }
+    .dash-detalhe__cat-nome { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dash-detalhe__cat-valor { color: var(--text-secondary); white-space: nowrap; font-size: 0.75rem; }
+    .dash-detalhe__lista { display: flex; flex-direction: column; max-height: 360px; overflow-y: auto; overscroll-behavior: contain; }
+    .dash-detalhe__linha {
+      display: grid; grid-template-columns: 52px minmax(0, 2fr) minmax(0, 1.2fr) auto 58px;
+      gap: 10px; align-items: center; padding: 7px 4px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05); font-size: 0.8rem; color: var(--text-primary);
+    }
+    .dash-detalhe__linha span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dash-detalhe__linha--cab {
+      position: sticky; top: 0; background: var(--bg-card, #111a16);
+      font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);
+    }
+    .dash-detalhe__valor { font-weight: 700; text-align: right; }
+    .dash-detalhe__mais {
+      margin-top: 10px; padding: 6px 12px; border-radius: 8px; font: inherit; font-size: 0.78rem;
+      color: var(--text-primary); background: transparent; border: 1px solid var(--border-default); cursor: pointer;
+    }
+
+    /* ── Aba 📒 Lançamentos (lancamentos-gestao.js) ── */
+    .lanc-gestao__barra { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin-bottom: 0.6rem; }
+    .lanc-gestao__barra input[type="search"] {
+      flex: 1 1 220px; background: var(--bg-input); border: 1px solid var(--border-default); border-radius: var(--radius-sm);
+      padding: 0.55rem 0.85rem; color: var(--text-primary); font-family: var(--font-body); font-size: 0.85rem; outline: none;
+    }
+    .lanc-gestao__barra select {
+      background: var(--bg-input); border: 1px solid var(--border-default); border-radius: var(--radius-sm);
+      padding: 0.5rem 0.7rem; color: var(--text-primary); font-family: var(--font-body); font-size: 0.85rem;
+    }
+    .lanc-gestao__info { font-size: 0.75rem; color: var(--text-secondary); margin: 0 0 0.6rem; }
+    .lanc-gestao__lista { display: flex; flex-direction: column; max-height: 60vh; overflow-y: auto; overscroll-behavior: contain;
+      border: 1px solid var(--border-default); border-radius: 10px; }
+    .lanc-gestao__linha {
+      display: grid; grid-template-columns: 70px minmax(0, 2fr) minmax(0, 1.3fr) 90px auto 64px;
+      gap: 10px; align-items: center; padding: 8px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05); font-size: 0.82rem; color: var(--text-primary);
+    }
+    .lanc-gestao__linha > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lanc-gestao__linha--cab { position: sticky; top: 0; z-index: 1; background: var(--bg-card, #111a16);
+      font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); }
+    .lanc-gestao__linha:not(.lanc-gestao__linha--cab):hover { background: rgba(255, 255, 255, 0.025); }
+    .lanc-gestao__origem { font-size: 0.72rem; color: var(--text-secondary); }
+    .lanc-gestao__valor { font-weight: 700; text-align: right; }
+    .lanc-gestao__valor--receita { color: #34d399; }
+    .lanc-gestao__valor--despesa { color: #f87171; }
+    .lanc-gestao__acoes { display: flex; gap: 4px; justify-content: flex-end; }
+    .lanc-gestao__btn {
+      width: 28px; height: 28px; border-radius: 7px; cursor: pointer; font-size: 0.8rem; line-height: 1;
+      background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-default);
+    }
+    .lanc-gestao__btn:hover { border-color: rgba(255, 255, 255, 0.3); }
+
+    .analise-item--clicavel { cursor: pointer; transition: border-color 0.15s ease; }
+    .analise-item--clicavel:hover { border-color: rgba(255, 255, 255, 0.25); }
+    .kpi-card--foco { outline: 2px solid rgba(255, 255, 255, 0.55); outline-offset: 2px; }
+
     @media (max-width: 640px) {
       .regua-linha { grid-template-columns: 1fr auto; }
       .regua-linha__barra { grid-column: 1 / -1; order: 3; }
+      .dash-detalhe__linha { grid-template-columns: 46px minmax(0, 1fr) auto 58px; }
+      .dash-detalhe__linha span:nth-child(3) { display: none; }
+      .lanc-gestao__linha { grid-template-columns: 46px minmax(0, 1fr) auto 58px; }
+      .lanc-gestao__linha > span:nth-child(3), .lanc-gestao__linha > span:nth-child(4) { display: none; }
     }
 
     /* Conversa com o cliente: separador de dia (não mexe no layout das
@@ -146,6 +261,9 @@
         <button class="nav-item" data-section="razonete">
           <span class="nav-icon">🧩</span> Razonete
         </button>
+        <button class="nav-item" data-section="regras">
+          <span class="nav-icon">🧠</span> Regras
+        </button>
       </nav>
     </div>
 
@@ -186,8 +304,14 @@
         <div id="notif-painel" class="notif-painel hidden">
           <div class="notif-painel__header">
             <h4>Notificações</h4>
-            <button type="button" id="btn-marcar-todas-lidas" class="notif-marcar-lidas">Marcar todas como lidas</button>
+            <div class="notif-painel__acoes">
+              <!-- Liga/desliga o som dos avisos (som.js) -->
+              <button type="button" class="notif-som" data-som-toggle data-som-compacto aria-pressed="true" title="Som das notificações">🔊</button>
+              <button type="button" id="btn-marcar-todas-lidas" class="notif-marcar-lidas">Marcar todas como lidas</button>
+            </div>
           </div>
+          <button type="button" id="btn-notif-sistema" class="notif-sistema hidden">📲 Receber avisos mesmo com o painel fechado</button>
+          <button type="button" id="btn-notif-teste" class="notif-sistema hidden">📨 Enviar aviso de teste para este aparelho</button>
           <div id="notif-lista" class="notif-lista">
             <p class="empty-state">Carregando...</p>
           </div>
@@ -382,6 +506,62 @@
       </div>
       <div id="razonete-list" class="razonete-list">
         <p class="empty-state">Nenhuma transação encontrada.</p>
+      </div>
+    </section>
+
+    <!-- ── REGRAS DE CLASSIFICAÇÃO ───────────────────────────── -->
+    <!-- Ver regras-admin.js. Regras globais valem para TODOS os clientes;
+         a promoção automática junta o que 3+ clientes ensinaram igual. -->
+    <section id="section-regras" class="section">
+      <div class="section-toolbar">
+        <h2 class="section-title">🧠 Regras de Classificação</h2>
+        <button class="btn-action" onclick="renderRegrasAdmin()">↻ Atualizar</button>
+      </div>
+      <p class="panel-subtitle" style="margin-bottom:1rem;">
+        Como o sistema decide a categoria de cada lançamento importado: primeiro a regra que o próprio cliente ensinou,
+        depois as <b>regras globais</b> abaixo, depois os sinônimos das categorias. PIX para pessoas nunca recebe
+        categoria automática — o cliente escolhe.
+      </p>
+
+      <div id="regras-resumo" class="kpi-grid"></div>
+
+      <div class="card regras-card">
+        <h3 class="regras-titulo">🚀 Candidatas a regra global</h3>
+        <p class="panel-subtitle">Termos que 3 ou mais clientes classificaram igual. Um clique e passam a valer para todos.</p>
+        <div id="regras-promocao-lista" class="regras-lista"></div>
+      </div>
+
+      <div class="card regras-card">
+        <h3 class="regras-titulo">🌐 Regras globais</h3>
+        <div class="regras-form">
+          <input type="text" id="regra-global-termo" placeholder="Termo (ex: uber, ifood, netflix)" autocomplete="off">
+          <select id="regra-global-tipo">
+            <option value="despesa">Despesa</option>
+            <option value="receita">Receita</option>
+          </select>
+          <select id="regra-global-categoria"></select>
+          <input type="number" id="regra-global-prioridade" value="100" min="0" max="999" title="Maior número vence">
+          <button type="button" class="btn-primary-sm" id="btn-add-regra-global">+ Adicionar</button>
+        </div>
+        <div id="regras-globais-lista" class="regras-lista"></div>
+      </div>
+
+      <div class="card regras-card">
+        <div class="regras-card__topo">
+          <h3 class="regras-titulo">⚠️ Regras suspeitas</h3>
+          <button type="button" class="btn-card deletar regras-btn-largo hidden" id="btn-limpar-suspeitas">🧹 Apagar todas</button>
+        </div>
+        <p class="panel-subtitle">Detectadas automaticamente: CPF/CNPJ no termo, descrição inteira de PIX, categoria de outro cliente ou tipo divergente.</p>
+        <div id="regras-suspeitas-lista" class="regras-lista"></div>
+      </div>
+
+      <div class="card regras-card">
+        <div class="regras-card__topo">
+          <h3 class="regras-titulo">👤 Regras por cliente</h3>
+          <button type="button" class="btn-card deletar regras-btn-largo hidden" id="btn-limpar-cliente">🗑️ Apagar todas</button>
+        </div>
+        <select id="regras-cliente-select" class="regras-select-cliente"></select>
+        <div id="regras-cliente-lista" class="regras-lista"></div>
       </div>
     </section>
 
@@ -591,12 +771,12 @@
                funcionar aqui sem nenhuma alteração. -->
           <div class="lancamentos-admin__tab-content" id="lancamentos-tab-importar">
             <p class="panel-subtitle" style="margin-bottom:1rem;">
-              Envie o arquivo .ofx ou .csv que o cliente te mandou. O sistema classifica automaticamente
-              (sinônimos, regras do Nubank, grupos semânticos) — você revisa e corrige antes de confirmar.
+              Envie o extrato (.ofx, .csv ou .pdf — ex.: Santander) que o cliente te mandou. O sistema classifica automaticamente
+              (sinônimos, regras do Nubank e do Santander, grupos semânticos) — você revisa e corrige antes de confirmar.
             </p>
             <div class="form-group">
-              <label>Arquivo (.ofx ou .csv)</label>
-              <input type="file" id="importFileInput" accept=".ofx,.csv,text/csv,application/vnd.intu.qbo">
+              <label>Arquivo (.ofx, .csv ou .pdf)</label>
+              <input type="file" id="importFileInput" accept=".ofx,.csv,.pdf,text/csv,application/pdf,application/vnd.intu.qbo">
             </div>
             <button type="button" class="btn-action" id="btnProcessarImportacao">Processar Arquivo</button>
 
@@ -688,17 +868,70 @@
           <button type="button" class="modal-dashboard__tab active" data-tab="resumo">📊 Resumo</button>
           <button type="button" class="modal-dashboard__tab" data-tab="dre">📄 DRE</button>
           <button type="button" class="modal-dashboard__tab" data-tab="balancete">📋 Balancete</button>
+          <button type="button" class="modal-dashboard__tab" data-tab="lancamentos">📒 Lançamentos</button>
         </div>
 
         <!-- ABA: RESUMO -->
         <div class="modal-dashboard__tab-content active" id="tab-resumo">
 
-          <!-- ORDEM DO RESUMO (organizada por pergunta):
-               1) O período escolhido: números → diagnóstico → régua →
-                  para onde foi → detalhe (tudo segue o filtro acima).
+          <!-- ORDEM DO RESUMO:
+               1) Período: gráficos (rosca + barras, interativos) →
+                  painel "O que tem em…" (só com filtro) → análise detalhada.
                2) Histórico do cliente: evolução 6 meses + engajamento
-                  (não seguem o filtro). -->
+                  (não seguem o filtro).
+               3) "Para onde foi a renda" (régua 50/30/20, segue o filtro).
+               4) Diagnóstico do período: observações e dicas → KPIs. -->
           <div class="dash-grupo-titulo"><span>📅 No período selecionado</span></div>
+          <p class="dash-dica-clique">👆 Clique numa fatia, numa barra ou num card da análise para ver o que tem dentro.</p>
+
+          <!-- Faixa "Filtrando: …" — ver renderFaixaFiltroDash() -->
+          <div class="dash-filtro hidden" id="dash-filtro-cruzado"></div>
+
+          <div class="charts-row">
+            <div class="chart-card">
+              <h4>🍩 Para onde foram as despesas</h4>
+              <div class="chart-container"><canvas id="chart-donut"></canvas></div>
+            </div>
+            <div class="chart-card">
+              <h4>📊 Top Categorias de Despesa</h4>
+              <div class="chart-container"><canvas id="chart-bar"></canvas></div>
+            </div>
+          </div>
+
+          <!-- "🔎 O que tem em …" — ver renderDetalheSelecaoDash() -->
+          <div class="dash-detalhe hidden" id="dash-detalhe"></div>
+
+          <div class="analise-section">
+            <h4>📊 ANÁLISE DETALHADA</h4>
+            <div class="analise-grid" id="analise-grid"></div>
+          </div>
+
+          <div class="dash-grupo-titulo"><span>🕒 Histórico do cliente</span><small>não segue o filtro de período</small></div>
+          <!-- Evolução mensal (histórico inteiro, não segue o filtro) -->
+          <div class="chart-card chart-card--largo">
+            <h4>📈 Receitas × despesas — últimos 6 meses</h4>
+            <div class="chart-container chart-container--baixo"><canvas id="chart-evolucao"></canvas></div>
+          </div>
+
+          <!-- Engajamento do cliente (histórico inteiro) — ver
+               renderEngajamentoCliente() em dashboards.js -->
+          <div class="dash-engajamento" id="dash-engajamento"></div>
+
+          <!-- Régua 50/30/20 "Para onde foi a renda" — segue o filtro de
+               período. Ver render503020() em dashboards.js -->
+          <div class="dash-503020" id="dash-503020"></div>
+
+          <div class="dash-grupo-titulo"><span>💡 Diagnóstico do período</span><small>segue o filtro de período</small></div>
+
+          <!-- Observações e dicas geradas automaticamente com base nos
+               números do período — ver gerarInsightsDashboard() em
+               dashboards.js. -->
+          <div class="insights-section">
+            <h4>💡 Observações e Dicas</h4>
+            <p class="insights-resumo" id="insights-dashboard-resumo"></p>
+            <div class="insights-list" id="insights-dashboard-lista"></div>
+          </div>
+
           <div class="kpi-grid">
             <div class="kpi-card kpi-orange">
               <span class="kpi-label">🟠 Custo de Sobrevivência</span>
@@ -726,45 +959,24 @@
               <span class="kpi-sub" id="kpi-poupanca-sub"></span>
             </div>
           </div>
+        </div>
 
-          <!-- Observações e dicas geradas automaticamente com base nos
-               números acima — ver gerarInsightsDashboard() em
-               dashboards.js. -->
-          <div class="insights-section">
-            <h4>💡 Observações e Dicas</h4>
-            <p class="insights-resumo" id="insights-dashboard-resumo"></p>
-            <div class="insights-list" id="insights-dashboard-lista"></div>
+        <!-- ABA: LANÇAMENTOS — o admin cria, edita e exclui lançamentos
+             do cliente. Segue o filtro de período. Ver lancamentos-gestao.js -->
+        <div class="modal-dashboard__tab-content" id="tab-lancamentos">
+          <div class="lanc-gestao__barra">
+            <input type="search" id="lanc-gestao-busca" placeholder="🔍 Buscar por descrição ou categoria..." autocomplete="off">
+            <select id="lanc-gestao-tipo" aria-label="Filtrar por tipo">
+              <option value="">Entradas e saídas</option>
+              <option value="receita">Só receitas</option>
+              <option value="despesa">Só despesas</option>
+            </select>
+            <button type="button" class="btn-primary-sm" id="lanc-gestao-novo">➕ Novo lançamento</button>
           </div>
-
-          <!-- Régua 50/30/20 — ver render503020() em dashboards.js -->
-          <div class="dash-503020" id="dash-503020"></div>
-
-          <div class="charts-row">
-            <div class="chart-card">
-              <h4>🍩 Para onde foram as despesas</h4>
-              <div class="chart-container"><canvas id="chart-donut"></canvas></div>
-            </div>
-            <div class="chart-card">
-              <h4>📊 Top Categorias de Despesa</h4>
-              <div class="chart-container"><canvas id="chart-bar"></canvas></div>
-            </div>
+          <p class="lanc-gestao__info" id="lanc-gestao-info"></p>
+          <div class="lanc-gestao__lista" id="lanc-gestao-lista">
+            <p class="empty-state">Abra o dashboard de um cliente.</p>
           </div>
-
-          <div class="analise-section">
-            <h4>📊 ANÁLISE DETALHADA</h4>
-            <div class="analise-grid" id="analise-grid"></div>
-          </div>
-
-          <div class="dash-grupo-titulo"><span>🕒 Histórico do cliente</span><small>não segue o filtro de período</small></div>
-          <!-- Evolução mensal (histórico inteiro, não segue o filtro) -->
-          <div class="chart-card chart-card--largo">
-            <h4>📈 Receitas × despesas — últimos 6 meses</h4>
-            <div class="chart-container chart-container--baixo"><canvas id="chart-evolucao"></canvas></div>
-          </div>
-
-          <!-- Engajamento do cliente (histórico inteiro) — ver
-               renderEngajamentoCliente() em dashboards.js -->
-          <div class="dash-engajamento" id="dash-engajamento"></div>
         </div>
 
         <!-- ABA: DRE (Demonstração do Resultado) -->
@@ -994,6 +1206,8 @@
           Cliente" (ver lancamentos-admin.js, que precisa vir por
           ÚLTIMO — define os shims ClientModule/DatabaseModule/
           UIModule que esses três arquivos esperam encontrar).
+          importacao-pdf.js é carregado sob demanda por
+          importacao-extrato.js (precisa estar na mesma pasta).
   ══════════════════════════════════════════════════════════════ -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -1001,13 +1215,17 @@
   <script src="config.js"></script>
   <script src="seguranca.js"></script>
   <script src="admin.js"></script>
+  <script src="som.js"></script>
+  <script src="push.js"></script>
   <script src="notificacoes-admin.js"></script>
   <script src="contabilidade.js"></script>
   <script src="categorias.js"></script>
   <script src="privacidade.js"></script>
   <script src="clientes.js"></script>
+  <script src="ciclo.js"></script>
   <script src="gamificacao.js"></script>
   <script src="dashboards.js"></script>
+  <script src="lancamentos-gestao.js"></script>
   <script src="metas.js"></script>
   <script src="planejamentos.js"></script>
   <script src="razonete.js"></script>
@@ -1016,6 +1234,7 @@
   <script src="importacao-extrato.js"></script>
   <script src="lancamentos-admin.js"></script>
   <script src="mensagens-admin.js"></script>
+  <script src="regras-admin.js"></script>
 
 </body>
 </html>

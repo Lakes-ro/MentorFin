@@ -67,6 +67,106 @@ function textoContemOuEhContido(a, b) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// MATCH SEGURO — palavra inteira, só o favorecido, sem radical
+// ══════════════════════════════════════════════════════════════
+/**
+ * CAUSA RAIZ DO "TUDO VIRA TRANSPORTE": avaliarCorrespondencia() comparava
+ * os 5 primeiros caracteres da DESCRIÇÃO INTEIRA com os do termo. Toda
+ * linha do Nubank começa com "Transferência…" ("trans") e a categoria
+ * "Transporte" também — então tudo era sugerido como Transporte. Também
+ * casava "99" dentro de CPF/CNPJ, "bar" dentro de "Barbosa", "pai" dentro
+ * de "Paiva" e "mercado" dentro de "MERCADO PAGO" (o banco).
+ *
+ * Agora: (1) o texto comparado é só o FAVORECIDO (sem "Transferência
+ * enviada pelo Pix", sem CPF/CNPJ, sem banco/agência/conta); (2) o termo
+ * precisa aparecer como PALAVRA INTEIRA (aceita plural s/es em termos de
+ * 4+ letras); (3) não existe mais match por radical.
+ */
+const PREFIXO_BANCARIO_COMPLETO = /^(transferencia( enviada| recebida)?( pelo pix| via pix| pix)?|pix( enviado| recebido)?|compra (no|com) (debito|credito)|pagamento( de)?( fatura| boleto| conta)?|debito automatico|deposito|saque)$/;
+const PREFIXO_BANCARIO_INICIO   = /^(transferencia( enviada| recebida)?( pelo pix| via pix| pix)?|pix( enviado| recebido)?|compra (no|com) (debito|credito))\s+/;
+
+/** "Transferência enviada pelo Pix - NOME - •••.123.456-•• - BANCO (0001) Agência…" → "NOME" */
+function extrairFavorecido(descricao) {
+    const original = String(descricao || '').trim();
+    if (!original) return '';
+
+    const partes = original.split(/\s+-\s+/).map(p => p.trim()).filter(Boolean);
+    const ehDocumento = (p) => /•{2,}|\*{3,}/.test(p) || /\d{3}\.\d{3}\.\d{3}-\d{2}/.test(p) || /\d{2}\.\d{3}\.\d{3}\/\d{4}/.test(p) || /^[\d.\-\/\s]+$/.test(p);
+    const ehBanco     = (p) => /ag[eê]ncia|conta:|\(\d{4}\)/i.test(p);
+
+    if (partes.length > 1) {
+        const mantidas = [];
+        for (const parte of partes) {
+            if (ehDocumento(parte) || ehBanco(parte)) {
+                if (mantidas.length) break;
+                continue;
+            }
+            if (!mantidas.length && PREFIXO_BANCARIO_COMPLETO.test(normalizarTexto(parte))) continue;
+            mantidas.push(parte);
+        }
+        if (mantidas.length) return mantidas.join(' ');
+    }
+
+    return normalizarTexto(original).replace(PREFIXO_BANCARIO_INICIO, '');
+}
+
+/** Texto limpo e normalizado usado em TODA comparação (sem números longos/documentos). */
+function textoParaMatch(descricao) {
+    return normalizarTexto(extrairFavorecido(descricao))
+        .replace(/[•*]+/g, ' ')
+        .replace(/\d[\d.,\-\/]{2,}\d/g, ' ')
+        .replace(/\b\d{3,}\b/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/** Chave estável de uma regra aprendida: o favorecido, não a descrição inteira. */
+function chaveRegra(descricao) {
+    const t = textoParaMatch(descricao).slice(0, 60).trim();
+    return t || normalizarTexto(descricao).slice(0, 60);
+}
+
+function escaparRegex(txt) {
+    return String(txt).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** O termo aparece como palavra inteira no texto? (plural s/es aceito em termos de 4+ letras) */
+function palavraInteira(texto, termo) {
+    if (!texto || !termo) return false;
+    const sufixo = termo.length >= 4 ? '(?:s|es)?' : '';
+    return new RegExp('(?:^|[^a-z0-9])' + escaparRegex(termo) + sufixo + '(?![a-z0-9])').test(texto);
+}
+
+/**
+ * Avalia um termo (sinônimo/nome) contra o texto já limpo.
+ *  - confiancaAlta=true : termo é palavra inteira dentro do texto.
+ *  - confiancaAlta=false: o texto digitado é parte inteira do termo
+ *    (ex: digitou "aluguel", termo "aluguel ganho") — só sugestão.
+ */
+function avaliarTermoNoTexto(texto, termoBruto) {
+    const termo = normalizarTexto(termoBruto).replace(/\s+/g, ' ');
+    if (!termo) return { match: false, confiancaAlta: false };
+    const numerico = /^\d+$/.test(termo);
+    if (termo.length < (numerico ? 2 : 3)) return { match: false, confiancaAlta: false };
+
+    if (palavraInteira(texto, termo)) return { match: true, confiancaAlta: true };
+    if (texto.length >= 4 && palavraInteira(termo, texto)) return { match: true, confiancaAlta: false };
+    return { match: false, confiancaAlta: false };
+}
+
+// Heurística local: acrescenta borda de palavra à esquerda em cada regra
+// (impede "luz" dentro de "Luzia", "curso" dentro de "recurso" etc.).
+const _cacheRegexBorda = new Map();
+function regexComBordaEsquerda(regex) {
+    let r = _cacheRegexBorda.get(regex);
+    if (!r) {
+        r = new RegExp('(?:^|[^a-z0-9])(?:' + regex.source + ')', 'i');
+        _cacheRegexBorda.set(regex, r);
+    }
+    return r;
+}
+
+// ══════════════════════════════════════════════════════════════
 // GRUPOS SEMÂNTICOS — VÁRIOS TERMOS DIFERENTES, UMA SÓ CATEGORIA
 // ══════════════════════════════════════════════════════════════
 /**
@@ -136,14 +236,11 @@ const GRUPOS_SEMANTICOS_CATEGORIA = [
  * ({ categoria, tipo, grupo, termos }) ou null.
  */
 function encontrarGrupoSemantico(texto) {
-    const alvo = normalizarTexto(texto);
+    const alvo = textoParaMatch(texto);
     if (!alvo) return null;
 
     for (const grupoSemantico of GRUPOS_SEMANTICOS_CATEGORIA) {
-        const bateu = grupoSemantico.termos.some(termo => {
-            const termoNormalizado = normalizarTexto(termo);
-            return alvo.includes(termoNormalizado) || termoNormalizado.includes(alvo);
-        });
+        const bateu = grupoSemantico.termos.some(termo => palavraInteira(alvo, normalizarTexto(termo)));
         if (bateu) return grupoSemantico;
     }
 
@@ -173,27 +270,31 @@ function encontrarGrupoSemantico(texto) {
  * "🔑 Sinônimo", QUAL palavra-chave especificamente reconheceu aquela
  * descrição (antes o selo só dizia "Sinônimo", sem dizer qual).
  */
-function encontrarCategoriaPorPalavraChave(categorias, descricao) {
-    const alvo = normalizarTexto(descricao);
-    if (!alvo || !categorias || !categorias.length) return null;
+function encontrarCategoriaPorPalavraChave(categorias, descricao, tipo = null) {
+    const texto = textoParaMatch(descricao);
+    if (!texto || !categorias || !categorias.length) return null;
 
+    // Tipo na frente: uma entrada nunca é comparada com categorias de saída (e vice-versa).
+    const candidatas = tipo ? categorias.filter(c => c.tipo === tipo) : categorias;
+    if (!candidatas.length) return null;
+
+    // Entre vários matches de alta confiança vence o termo MAIS ESPECÍFICO (mais longo).
     const melhorPorPassada = (fonteDeTermo) => {
-        let melhorMatch = null; // { cat, confiancaAlta, termoBruto }
-        for (const cat of categorias) {
-            const termos = fonteDeTermo(cat);
-            for (const termoBruto of termos) {
-                const termo = normalizarTexto(termoBruto);
-                if (!termo) continue;
-                const resultado = avaliarCorrespondencia(alvo, termo);
-                if (!resultado.match) continue;
-
-                if (resultado.confiancaAlta) {
-                    return { cat, confiancaAlta: true, termoBruto };
+        let melhorAlta = null;
+        let melhorAprox = null;
+        for (const cat of candidatas) {
+            for (const termoBruto of fonteDeTermo(cat)) {
+                const r = avaliarTermoNoTexto(texto, termoBruto);
+                if (!r.match) continue;
+                const tam = normalizarTexto(termoBruto).length;
+                if (r.confiancaAlta) {
+                    if (!melhorAlta || tam > melhorAlta.tam) melhorAlta = { cat, termoBruto, tam, confiancaAlta: true };
+                } else if (!melhorAprox || tam > melhorAprox.tam) {
+                    melhorAprox = { cat, termoBruto, tam, confiancaAlta: false };
                 }
-                if (!melhorMatch) melhorMatch = { cat, confiancaAlta: false, termoBruto };
             }
         }
-        return melhorMatch;
+        return melhorAlta || melhorAprox;
     };
 
     // 1ª passada: sinônimos cadastrados pelo admin (palavras_chave)
@@ -208,14 +309,11 @@ function encontrarCategoriaPorPalavraChave(categorias, descricao) {
         return { ...porNome.cat, _confiancaAlta: porNome.confiancaAlta, _termoCorrespondente: porNome.termoBruto, _origemTermo: 'nome' };
     }
 
-    // 3ª passada: GRUPO SEMÂNTICO — só entra em ação se já existir uma
-    // categoria REAL cadastrada com o nome canônico do grupo (ou
-    // parecido) — nunca inventa uma categoria. Sempre confiança
-    // aproximada, é uma inferência de significado, não texto batendo.
-    const grupoSemantico = encontrarGrupoSemantico(alvo);
-    if (grupoSemantico) {
+    // 3ª passada: grupo semântico — só usa categoria REAL já cadastrada.
+    const grupoSemantico = encontrarGrupoSemantico(texto);
+    if (grupoSemantico && (!tipo || grupoSemantico.tipo === tipo)) {
         const nomeCanonico = normalizarTexto(grupoSemantico.categoria);
-        const categoriaCanonica = categorias.find(c =>
+        const categoriaCanonica = candidatas.find(c =>
             c.tipo === grupoSemantico.tipo && textoContemOuEhContido(normalizarTexto(c.nome), nomeCanonico)
         );
         if (categoriaCanonica) {
@@ -244,7 +342,7 @@ const REGRAS_CLASSIFICACAO_LOCAL = [
     [/investimento|aporte|a[çc][oõ]es|fii\b/i,                      'despesa', 'Aporte em Investimentos'],
 
     // ── Essencial ──
-    [/luz|energia el[eé]trica/i,                                    'despesa', 'Energia Elétrica'],
+    [/luz\b|energia el[eé]trica/i,                                    'despesa', 'Energia Elétrica'],
     [/[aá]gua|esgoto/i,                                              'despesa', 'Água e Esgoto'],
     [/g[aá]s\b|botijao/i,                                            'despesa', 'Gás'],
     [/internet|banda larga|wifi/i,                                   'despesa', 'Internet Banda Larga'],
@@ -263,7 +361,7 @@ const REGRAS_CLASSIFICACAO_LOCAL = [
     [/seguro do carro|seguro auto/i,                                 'despesa', 'Seguro Auto'],
     [/ipva|licenciamento/i,                                          'despesa', 'IPVA e Licenciamento'],
     [/oficina|mec[aâ]nico|revis[aã]o do carro|troca de [oó]leo|pneu|alinhamento|balanceamento/i, 'despesa', 'Manutenção Preventiva do Veículo'],
-    [/[oô]nibus|uber|99\b|metr[oô]|passagem de [oô]nibus/i,          'despesa', 'Transporte Público'],
+    [/[oô]nibus|uber\b|99\b|metr[oô]|passagem de [oô]nibus/i,          'despesa', 'Transporte Público'],
     [/veterinario|racao|vacina do pet/i,                             'despesa', 'Pet: Ração, Veterinário e Vacinas'],
 
     // ── Estilo de vida ──
@@ -282,7 +380,9 @@ const REGRAS_CLASSIFICACAO_LOCAL = [
 ];
 
 function classificarLocalmente(descricao) {
-    const regra = REGRAS_CLASSIFICACAO_LOCAL.find(([regex]) => regex.test(descricao));
+    const texto = textoParaMatch(descricao);
+    if (!texto) return null;
+    const regra = REGRAS_CLASSIFICACAO_LOCAL.find(([regex]) => regexComBordaEsquerda(regex).test(texto));
 
     if (!regra) return null;
 
@@ -455,9 +555,27 @@ async function autoClassify(description) {
 
         let resultado = null;
 
-        // 1) Palavras-chave/sinônimos/nome/grupo semântico
         const categoriasDisponiveis = await getCategoriasParaClassificacao();
-        const categoriaPorSinonimo  = encontrarCategoriaPorPalavraChave(categoriasDisponiveis, descricao);
+
+        // 0) Regras globais definidas pelo admin (valem para todos os clientes)
+        if (typeof RegrasGlobaisModule !== 'undefined') {
+            try {
+                const g = await RegrasGlobaisModule.buscar(descricao, null, categoriasDisponiveis);
+                if (g) {
+                    resultado = {
+                        tipo:          g.categoria.tipo,
+                        categoriaNome: g.categoria.nome,
+                        fallback:      false,
+                        local:         false,
+                        palavraChave:  true,
+                        confiancaAlta: true
+                    };
+                }
+            } catch (_) { /* regra global é opcional */ }
+        }
+
+        // 1) Palavras-chave/sinônimos/nome/grupo semântico
+        const categoriaPorSinonimo  = resultado ? null : encontrarCategoriaPorPalavraChave(categoriasDisponiveis, descricao);
         if (categoriaPorSinonimo) {
             resultado = {
                 tipo:          categoriaPorSinonimo.tipo,
@@ -605,4 +723,4 @@ if (document.readyState === 'loading') {
     initForm(false);
 }
 
-console.log('✅ smart-input.js carregado (sinônimos + radical + grupos semânticos alinhados ao plano de contas)');
+console.log('✅ smart-input.js carregado (match por palavra inteira + favorecido + tipo na frente)');

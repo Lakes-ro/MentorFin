@@ -62,7 +62,7 @@ const UIModule = (() => {
             msgDiv.textContent = message;
             msgDiv.style.cssText = `
                 position: fixed;
-                top: 20px;
+                top: max(20px, env(safe-area-inset-top, 20px));
                 right: 20px;
                 left: auto;
                 max-width: min(420px, calc(100vw - 40px));

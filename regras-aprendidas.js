@@ -45,19 +45,24 @@ const RegrasAprendidasModule = (() => {
      * Retorna a linha (com categoria_id, tipo) ou null se não existir.
      */
     async function buscarRegra(clienteId, termoBusca) {
-        const termo = normalizarTexto(termoBusca);
-        if (!clienteId || !termo) return null;
+        // A chave é o FAVORECIDO limpo (ver chaveRegra em smart-input.js).
+        // Também tenta o formato antigo (descrição inteira normalizada)
+        // para não perder regras curtas ensinadas antes desta mudança.
+        const chave  = chaveRegra(termoBusca);
+        const legado = normalizarTexto(termoBusca);
+        const termos = [...new Set([chave, legado].filter(t => t && !t.includes('"')))];
+        if (!clienteId || !termos.length) return null;
 
         try {
             const { data, error } = await supabaseClient
                 .from('regras_aprendidas')
                 .select('id, categoria_id, tipo, termo_busca')
                 .eq('cliente_id', clienteId)
-                .eq('termo_busca', termo)
-                .maybeSingle();
+                .in('termo_busca', termos);
 
             if (error) throw error;
-            return data || null;
+            if (!data || !data.length) return null;
+            return data.find(r => r.termo_busca === chave) || data[0];
         } catch (err) {
             console.error('❌ RegrasAprendidasModule.buscarRegra:', err.message);
             return null;
@@ -65,18 +70,31 @@ const RegrasAprendidasModule = (() => {
     }
 
     /**
-     * Grava a regra definitiva para (cliente, termo) — INSERT se for a
-     * primeira vez que esse termo é confirmado, UPDATE se já existia uma
-     * regra e a categoria final escolhida no Registar for diferente
-     * (ou seja: o cliente corrigiu a sugestão). Usa upsert do Supabase
-     * com onConflict na constraint única (cliente_id, termo_busca), então
-     * o INSERT/UPDATE é decidido pelo próprio Postgres numa única
-     * chamada — sem precisar de um SELECT prévio para decidir qual dos
-     * dois fazer.
+     * Carrega TODAS as regras de um cliente de uma vez (Map termo → regra).
+     * Usado pela importação de extrato: com 300 linhas, são 1 consulta
+     * em vez de 300.
      */
+    async function listarDoCliente(clienteId) {
+        const mapa = new Map();
+        if (!clienteId) return mapa;
+        try {
+            const { data, error } = await supabaseClient
+                .from('regras_aprendidas')
+                .select('id, categoria_id, tipo, termo_busca')
+                .eq('cliente_id', clienteId)
+                .limit(5000);
+            if (error) throw error;
+            (data || []).forEach(r => mapa.set(r.termo_busca, r));
+        } catch (err) {
+            console.error('❌ RegrasAprendidasModule.listarDoCliente:', err.message);
+        }
+        return mapa;
+    }
+
     async function salvarOuAtualizarRegra({ clienteId, termoBusca, categoriaId, tipo }) {
-        const termo = normalizarTexto(termoBusca);
-        if (!clienteId || !termo || !categoriaId || !tipo) {
+        const termo = chaveRegra(termoBusca);
+        // Termo curto demais ou só número não ensina nada — e poluía a tabela.
+        if (!clienteId || !termo || termo.length < 3 || /^\d+$/.test(termo) || !categoriaId || !tipo) {
             console.warn('⚠️ RegrasAprendidasModule.salvarOuAtualizarRegra: parâmetros incompletos, nada foi salvo.');
             return null;
         }
@@ -108,7 +126,58 @@ const RegrasAprendidasModule = (() => {
         }
     }
 
-    return { buscarRegra, salvarOuAtualizarRegra };
+    return { buscarRegra, listarDoCliente, salvarOuAtualizarRegra };
+})();
+
+// ══════════════════════════════════════════════════════════════
+// REGRAS GLOBAIS — definidas pelo admin, valem para TODOS os clientes
+// ══════════════════════════════════════════════════════════════
+// Tabela `regras_globais` (termo, tipo, categoria_id, prioridade, ativo).
+// Só aponta para categorias globais. Maior prioridade vence; em empate,
+// o termo mais longo (mais específico). Se a tabela ainda não existir
+// ou falhar, devolve "sem regra" — nunca quebra a classificação.
+const RegrasGlobaisModule = (() => {
+    let cache = null;
+    let carregadoEm = 0;
+    const TTL_MS = 5 * 60 * 1000;
+
+    async function carregar(forcar = false) {
+        if (!forcar && cache && (Date.now() - carregadoEm) < TTL_MS) return cache;
+        try {
+            const { data, error } = await supabaseClient
+                .from('regras_globais')
+                .select('id, termo, tipo, categoria_id, prioridade')
+                .eq('ativo', true);
+            if (error) throw error;
+            cache = (data || []).sort((a, b) => (b.prioridade - a.prioridade) || (b.termo.length - a.termo.length));
+        } catch (err) {
+            console.warn('⚠️ RegrasGlobaisModule.carregar:', err.message);
+            cache = cache || [];
+        }
+        carregadoEm = Date.now();
+        return cache;
+    }
+
+    /** @returns {{regra, categoria, termo}|null} — tipo null = qualquer tipo */
+    async function buscar(descricao, tipo, categorias) {
+        const regras = await carregar();
+        if (!regras.length) return null;
+        const texto = textoParaMatch(descricao);
+        if (!texto) return null;
+
+        for (const regra of regras) {
+            if (tipo && regra.tipo !== tipo) continue;
+            if (!palavraInteira(texto, normalizarTexto(regra.termo))) continue;
+            const categoria = (categorias || []).find(c => c.id === regra.categoria_id);
+            if (!categoria) continue;
+            return { regra, categoria, termo: regra.termo };
+        }
+        return null;
+    }
+
+    function invalidar() { cache = null; }
+
+    return { carregar, buscar, invalidar };
 })();
 
 // ══════════════════════════════════════════════════════════════

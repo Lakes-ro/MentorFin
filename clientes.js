@@ -9,7 +9,7 @@
  * Abre o modal "Lançamentos para Cliente" (ver admin.html +
  * lancamentos-admin.js) já com ESTE cliente pré-selecionado — dali o
  * admin pode lançar uma transação manualmente ou importar um extrato
- * (OFX/CSV) que o cliente mandou, reaproveitando toda a inteligência
+ * (OFX/CSV/PDF) que o cliente mandou, reaproveitando toda a inteligência
  * de classificação automática já usada no painel do próprio cliente.
  *
  * ATUALIZAÇÃO — BUSCA: campo "Buscar cliente" acima da grade filtra
@@ -21,6 +21,8 @@
  * (vindos de `clients_admin_view`, ver loadAllClientes em admin.js).
  * `c.nome` já é o rótulo de exibição; o nome real para editar é
  * `c.nomeCompleto`.
+ *
+ * ATUALIZAÇÃO — EXCLUSÃO SEGURA (out/2026): ver confirmarDeletar().
  */
 
 let clienteEmEdicao     = null;
@@ -240,18 +242,44 @@ async function salvarCliente() {
   renderClientes();
 }
 
+/**
+ * Excluir cliente. As categorias PESSOAIS dele são apagadas junto
+ * (cascata no banco) — mas se algum OUTRO cliente tiver lançamentos
+ * numa delas (vazamento antigo da importação), o banco recusava com
+ * "violates foreign key constraint transacoes_categoria_id_fkey".
+ * Agora, antes de excluir, essas categorias viram GLOBAIS e os
+ * lançamentos dos outros clientes ficam intactos.
+ */
 async function confirmarDeletar(id, nome) {
-  if (!confirm(`Tem certeza que deseja deletar o cliente "${nome}"? Esta ação não pode ser desfeita.`)) return;
+  if (!confirm(`Tem certeza que deseja deletar o cliente "${nome}"?\n\nTodos os lançamentos, metas, mensagens e planejamentos dele serão apagados. Esta ação não pode ser desfeita.`)) return;
 
-  const { error } = await supabaseClient.from('clientes').delete().eq('id', id);
+  try {
+    const { data: catsPessoais, error: errCats } = await supabaseClient
+      .from('categorias').select('id, nome').eq('cliente_id', id);
+    if (errCats) throw errCats;
 
-  if (error) {
+    const idsCats = (catsPessoais || []).map(c => c.id);
+    if (idsCats.length) {
+      const { data: usadasPorOutros, error: errUso } = await supabaseClient
+        .from('transacoes').select('categoria_id').in('categoria_id', idsCats).neq('client_id', id);
+      if (errUso) throw errUso;
+
+      const manter = [...new Set((usadasPorOutros || []).map(t => t.categoria_id))];
+      if (manter.length) {
+        const { error: errGlobal } = await supabaseClient
+          .from('categorias').update({ cliente_id: null, revisado: true }).in('id', manter);
+        if (errGlobal) throw errGlobal;
+      }
+    }
+
+    const { error } = await supabaseClient.from('clientes').delete().eq('id', id);
+    if (error) throw error;
+
+    showToast('Cliente removido.');
+    renderClientes();
+  } catch (error) {
     showToast('Erro ao deletar: ' + error.message, 'error');
-    return;
   }
-
-  showToast('Cliente removido.');
-  renderClientes();
 }
 
 async function abrirModalComentarios(clienteId, nome) {
@@ -309,4 +337,4 @@ function formatDataComentario(dateStr) {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-console.log('✅ clientes.js carregado (com apelidos)');
+console.log('✅ clientes.js carregado (com apelidos + exclusão segura)');

@@ -11,84 +11,53 @@
  *      pipeline de classificação normal, na ordem:
  *        a) regras_aprendidas (RegrasAprendidasModule.buscarRegra) —
  *           se o cliente já classificou esse termo antes, usa direto;
- *        b) palavras-chave/sinônimos cadastrados pelo ADMIN em
+ *        b) regras globais do admin (RegrasGlobaisModule);
+ *        c) palavras-chave/sinônimos cadastrados pelo ADMIN em
  *           `categorias.palavras_chave` (encontrarCategoriaPorPalavraChave,
- *           de smart-input.js) — plano de contas curado manualmente,
- *           mais confiável que a heurística fixa no código. Distingue
- *           match EXATO (alta confiança) de match por RADICAL/raiz
- *           comum (confiança aproximada — ver nota abaixo);
- *        c) classificador local por palavras-chave FIXAS
- *           (classificarLocalmente, de smart-input.js) — cobre termos
- *           comuns mesmo sem nenhuma curadoria feita pelo admin ainda;
- *        d) se nada reconhecer, fica em aberto para seleção manual.
- *      NENHUMA chamada de rede é feita por linha nesta etapa (nem ao
- *      endpoint /api/classify, que é só placeholder) — com um extrato de
- *      centenas de linhas, esperar N requisições que sempre falham (404)
- *      seria lento e inútil.
+ *           de smart-input.js);
+ *        d) classificador local por palavras-chave FIXAS
+ *           (classificarLocalmente, de smart-input.js);
+ *        e) se nada reconhecer, fica em aberto para seleção manual.
+ *      NENHUMA chamada de rede é feita por linha nesta etapa.
  *   4. Uma tabela de revisão aparece — NADA foi salvo no banco ainda.
  *      O cliente confere/corrige cada linha (data, descrição, valor,
  *      tipo, categoria) e pode desmarcar linhas que não quer importar.
  *   5. Só ao clicar "Confirmar Importação" é que os dados são gravados
  *      (em lote, numa única chamada de rede) — e a partir daí o sistema
- *      aprende cada classificação confirmada/corrigida, exatamente como
- *      já acontece no formulário manual de transação.
+ *      aprende cada classificação confirmada/corrigida.
  *
  * Padrão: script global (sem import/export), igual ao resto do projeto.
  * Depende de (devem estar carregados ANTES): config.js, database.js,
  * ui.js, client.js, app.js, smart-input.js, regras-aprendidas.js, e a
  * biblioteca externa PapaParse (CDN, só usada para o parser de CSV).
+ * No admin, os shims de lancamentos-admin.js fazem o papel de
+ * ClientModule/DatabaseModule/UIModule.
  *
- * ATUALIZAÇÃO — "RECEITA ANTES DE DESPESA": o <select> nativo de tipo
- * de cada linha (import-select-tipo) listava Despesa antes de Receita.
- * Trocado para respeitar a mesma convenção usada no resto do sistema.
- *
- * ATUALIZAÇÃO — REGRAS NUBANK (preClassificarTransacao):
- * Antes de qualquer classificação normal, cada linha passa por
- * preClassificarTransacao(descricao, valorComSinal), que resolve 4
- * casos especiais do extrato do Nubank:
- *   1) "Aplicação RDB" / "Resgate RDB" — dinheiro só mudou de conta
- *      (foi pra uma caixinha/investimento e volta), NÃO é receita nem
- *      despesa de verdade -> vira Transferência Interna, categoria
- *      pré-preenchida automaticamente.
- *   2) "Pagamento de fatura" — evita contar a fatura do cartão como
- *      despesa duplicada (as despesas reais já entram pelo extrato do
- *      cartão em si) -> também vira Transferência Interna.
- *   3) "Reembolso recebido" — não é salário/renda nova, é devolução de
- *       um gasto que já tinha sido contabilizado -> Transferência
- *       Interna também, para não inflar a receita do mês.
- *   4) "Compra no débito - " — só uma limpeza visual: remove esse
- *      prefixo da descrição pra tabela ficar mais legível, mas NÃO
- *      força nenhuma categoria (o cliente/importador escolhe
- *      normalmente, e a descrição já limpa ainda ajuda o classificador
- *      por palavra-chave a reconhecer melhor o termo real).
- * Para os casos 1-3 (bloquearCategoria=true), o sistema tenta achar
- * automaticamente uma categoria REAL já cadastrada com
- * grupo='transferencia' e o tipo certo (receita/despesa) — ver
- * encontrarCategoriaDeTransferencia(). Se não existir nenhuma
- * categoria de Transferência Interna cadastrada ainda, a linha cai de
- * volta no pipeline normal de classificação, sem quebrar nada.
- *
- * ATUALIZAÇÃO — SELO DE CONFIANÇA NA TABELA DE REVISÃO:
- * `encontrarCategoriaPorPalavraChave` (smart-input.js) agora devolve
- * também se o match foi de ALTA confiança (sinônimo/nome bateu como
- * substring exato) ou APROXIMADA (só a raiz da palavra bateu — ver
- * nota completa em smart-input.js). A tabela de revisão reflete isso:
- * o selo "🔑 Sinônimo" só aparece pra match de alta confiança; um
- * match aproximado aparece como "🔎 Sugestão aproximada" — um alerta
- * visual pra você prestar atenção extra naquela linha específica antes
- * de confirmar a importação. NADA impede a importação por causa disso
- * — é só um aviso, a decisão final continua sendo sua.
- *
- * ⚠️ SOBRE O DROPDOWN DE CATEGORIA NESTA TABELA:
- * Esta tabela usa <select> NATIVO (sem <optgroup>) por performance
- * numa tabela potencialmente com centenas de linhas — ver explicação
- * completa na versão anterior deste comentário; nada mudou aqui.
+ * ATUALIZAÇÃO — TABELA DE REVISÃO REFEITA (sem rolagem lateral + busca):
+ *  - CATEGORIA POR BUSCA: o <select> nativo com centenas de opções foi
+ *    trocado por um campo de texto com painel de sugestões (combobox).
+ *    Digite parte do nome, de um sinônimo, do código contábil ou do
+ *    grupo; só aparecem categorias do MESMO TIPO da linha (receita/
+ *    despesa), que é a regra que a confirmação já exigia. Navegação por
+ *    teclado: ↑ ↓ Enter Esc Tab. O painel é um único elemento fixo no
+ *    <body> (não é cortado pela rolagem da tabela nem do modal).
+ *  - LAYOUT: cada lançamento ocupa 2 linhas (dados + categoria/origem),
+ *    sem rolagem horizontal. O CSS está no bloco
+ *    "IMPORTAÇÃO — layout sem rolagem horizontal" de admin.css e
+ *    style.css.
+ *  - Ao escolher a categoria, o selo de origem vira "Escolhida por você".
+ *  - Mudar o Tipo da linha limpa a categoria se ela for do outro tipo.
+ *  - Linhas ainda sem categoria ganham uma marca lateral âmbar.
+ *  - Aviso "⚠️ Parece já lançada": linha do extrato com mesma data, valor
+ *    e tipo de um lançamento feito à mão vem DESMARCADA (marque se for
+ *    outro gasto). Lançamentos manuais sem `origem` também contam.
  */
 
 // ── Estado do módulo ────────────────────────────────────────────
 let linhasImportacao        = [];  // linhas normalizadas + classificadas, ainda não salvas
 let categoriasCacheImportacao = null; // cache local das categorias (evita refetch por linha)
 let hashesJaImportadosCache  = new Set(); // import_hash já existentes no banco para este cliente (dedup)
+let regrasClienteCacheImportacao = null; // Map termo → regra aprendida do cliente (1 consulta por arquivo)
 
 const GRUPO_LABEL_IMPORTACAO = {
     essencial:      '🟠 Essencial',
@@ -99,25 +68,16 @@ const GRUPO_LABEL_IMPORTACAO = {
     renda:          '📈 Renda'
 };
 
+// Ordem dos grupos no painel de categorias (quando não há texto digitado)
+const ORDEM_GRUPOS_COMBO = ['renda', 'essencial', 'estilo_de_vida', 'investimento', 'divida', 'transferencia'];
+
 // ══════════════════════════════════════════════════════════════
 // REGRAS DE NEGÓCIO ESPECÍFICAS DO PADRÃO NUBANK
 // ══════════════════════════════════════════════════════════════
 /**
- * Recebe a descrição bruta de uma linha do extrato e o valor NUMÉRICO
- * COM SINAL (negativo = saída/despesa, positivo = entrada/receita) e
- * devolve como essa linha deve ser tratada, ANTES de qualquer
- * classificação por palavra-chave.
- *
  * @param {string} descricao - descrição original da linha do extrato
  * @param {number} valor - valor com sinal (negativo = despesa)
  * @returns {{ tipo: string, grupo: string|null, descricaoLimpa: string, bloquearCategoria: boolean }}
- *   tipo: 'Receita' | 'Despesa' | 'Transferência Interna'
- *   grupo: rótulo do grupo (ou null quando não é um caso especial)
- *   descricaoLimpa: descrição já sem prefixos técnicos (ex: "Compra no débito - ")
- *   bloquearCategoria: true quando o sistema já decidiu que isso NÃO é
- *     receita/despesa de verdade e a categoria deve ser preenchida
- *     automaticamente com uma de Transferência Interna, sem passar
- *     pelo classificador normal.
  */
 function preClassificarTransacao(descricao, valor) {
     const desc = (descricao || '').toLowerCase();
@@ -180,14 +140,9 @@ function preClassificarTransacao(descricao, valor) {
 }
 
 /**
- * Procura, entre as categorias JÁ CADASTRADAS (categoriasCacheImportacao),
- * uma categoria real do grupo 'transferencia' com o `tipo` pedido —
- * usada para pré-preencher automaticamente linhas que
- * preClassificarTransacao() identificou como "não é receita/despesa de
- * verdade" (RDB, fatura, reembolso). Se não existir nenhuma categoria
- * de Transferência Interna cadastrada ainda para esse tipo, retorna
- * null — a linha cai de volta no pipeline normal de classificação,
- * sem quebrar nada.
+ * Procura, entre as categorias JÁ CADASTRADAS, uma categoria real do
+ * grupo 'transferencia' com o `tipo` pedido. Se não existir, retorna
+ * null e a linha cai no pipeline normal.
  */
 function encontrarCategoriaDeTransferencia(tipo) {
     if (!categoriasCacheImportacao) return null;
@@ -199,6 +154,20 @@ function encontrarCategoriaDeTransferencia(tipo) {
 // ══════════════════════════════════════════════════════════════
 // UTILITÁRIOS DE HASH E NORMALIZAÇÃO
 // ══════════════════════════════════════════════════════════════
+
+/**
+ * Lê um arquivo como texto via FileReader — substitui File.text() para
+ * compatibilidade com iOS Safari, onde esse método nativo falha dentro
+ * de modais com position:fixed ou em PWA standalone.
+ */
+function lerArquivoComoTexto(arquivo) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload  = (e) => resolve(e.target.result);
+        reader.onerror = ()  => reject(new Error('Não foi possível ler o arquivo. Tente novamente.'));
+        reader.readAsText(arquivo, 'UTF-8');
+    });
+}
 
 function hashFNV1a(texto) {
     let hash = 0x811c9dc5;
@@ -357,48 +326,51 @@ function parsearCsv(textoCsv) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// CLASSIFICAÇÃO POR LINHA (regra aprendida -> sinônimo -> heurística)
+// CLASSIFICAÇÃO POR LINHA (regra aprendida -> global -> sinônimo -> heurística)
 // ══════════════════════════════════════════════════════════════
 
 /**
- * Classifica uma linha já normalizada, tentando na ordem: regra
- * aprendida do cliente, palavras-chave/sinônimos cadastrados pelo
- * admin (ou nome da categoria, com distinção de confiança — ver
- * smart-input.js), depois heurística local FIXA por palavras-chave.
- * NÃO chama nenhum endpoint de rede. Retorna { categoriaId,
- * categoriaNome, origem } — categoriaId fica null se nada reconhecer a
- * descrição (precisa de seleção manual). `origem` pode ser
- * 'palavra_chave' (alta confiança) ou 'palavra_chave_aproximada'
- * (confiança por radical — ver ORIGEM_BADGE_LABEL abaixo).
+ * Classifica uma linha já normalizada, na ordem:
+ *   1) regra aprendida do próprio cliente (só se o tipo bater);
+ *   2) regra GLOBAL do admin (todos os clientes);
+ *   3) sinônimos/nome da categoria (JÁ filtrados pelo tipo da linha);
+ *   4) heurística local fixa;
+ *   5) nada reconheceu → "pessoa" (PIX/transferência) ou "manual".
+ * Nunca chuta categoria para PIX entre pessoas — o cliente escolhe.
  */
 async function classificarLinhaImportacao(clienteId, descricao, tipoSugerido) {
-    // 1) Regra aprendida — um termo aprendido vale mesmo que o sinal do
-    // valor no extrato pareça contradizer (o cliente já confirmou essa
-    // classificação antes).
-    if (typeof RegrasAprendidasModule !== 'undefined') {
-        const regra = await RegrasAprendidasModule.buscarRegra(clienteId, descricao);
-        if (regra) {
-            const cat = categoriasCacheImportacao.find(c => c.id === regra.categoria_id);
-            if (cat) return { categoriaId: cat.id, categoriaNome: cat.nome, origem: 'aprendida', termoCorrespondente: regra.termo_busca };
+    // 1) Regra aprendida
+    let regra = null;
+    if (regrasClienteCacheImportacao) {
+        regra = regrasClienteCacheImportacao.get(chaveRegra(descricao))
+             || regrasClienteCacheImportacao.get(normalizarTexto(descricao))
+             || null;
+    } else if (typeof RegrasAprendidasModule !== 'undefined') {
+        regra = await RegrasAprendidasModule.buscarRegra(clienteId, descricao);
+    }
+    if (regra) {
+        const cat = categoriasCacheImportacao.find(c => c.id === regra.categoria_id);
+        if (cat && cat.tipo === tipoSugerido) {
+            return { categoriaId: cat.id, categoriaNome: cat.nome, origem: 'aprendida', termoCorrespondente: regra.termo_busca };
         }
     }
 
-    // 2) Palavras-chave/sinônimos cadastrados pelo admin (ou nome da
-    // categoria) — plano de contas curado manualmente — só aceita se o
-    // tipo bater com o sinal do valor no extrato, pela mesma razão de
-    // segurança do passo 3 abaixo (nunca grava uma categoria de tipo
-    // inconsistente).
+    // 2) Regra global do admin
+    if (typeof RegrasGlobaisModule !== 'undefined') {
+        const g = await RegrasGlobaisModule.buscar(descricao, tipoSugerido, categoriasCacheImportacao);
+        if (g) return { categoriaId: g.categoria.id, categoriaNome: g.categoria.nome, origem: 'global', termoCorrespondente: g.termo };
+    }
+
+    // 3) Sinônimos/nome da categoria — só categorias do MESMO tipo
     if (typeof encontrarCategoriaPorPalavraChave === 'function') {
-        const catPorSinonimo = encontrarCategoriaPorPalavraChave(categoriasCacheImportacao, descricao);
-        if (catPorSinonimo && catPorSinonimo.tipo === tipoSugerido) {
+        const catPorSinonimo = encontrarCategoriaPorPalavraChave(categoriasCacheImportacao, descricao, tipoSugerido);
+        if (catPorSinonimo) {
             const origem = catPorSinonimo._confiancaAlta === false ? 'palavra_chave_aproximada' : 'palavra_chave';
             return { categoriaId: catPorSinonimo.id, categoriaNome: catPorSinonimo.nome, origem, termoCorrespondente: catPorSinonimo._termoCorrespondente };
         }
     }
 
-    // 3) Heurística local FIXA — só aceita o match se o tipo sugerido
-    // pela regra de palavra-chave BATER com o tipo já inferido pelo
-    // sinal do valor no extrato.
+    // 4) Heurística local FIXA (só aceita se o tipo bater)
     if (typeof classificarLocalmente === 'function') {
         const resultadoLocal = classificarLocalmente(descricao);
         if (resultadoLocal && resultadoLocal.tipo === tipoSugerido) {
@@ -409,8 +381,9 @@ async function classificarLinhaImportacao(clienteId, descricao, tipoSugerido) {
         }
     }
 
-    // 4) Nada reconheceu (ou o tipo não batia) — precisa de seleção manual
-    return { categoriaId: null, categoriaNome: null, origem: 'manual' };
+    // 5) Nada reconheceu
+    const ehPixOuTransferencia = /^(transferencia|pix)/.test(normalizarTexto(descricao));
+    return { categoriaId: null, categoriaNome: null, origem: ehPixOuTransferencia ? 'pessoa' : 'manual' };
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -433,7 +406,7 @@ async function processarArquivoImportacao() {
     esconderTabelaRevisao();
 
     try {
-        const texto      = await arquivo.text();
+        const texto      = await lerArquivoComoTexto(arquivo);
         const ehOfx       = /\.ofx$|\.qbo$/i.test(arquivo.name) || /<OFX>/i.test(texto);
         const linhasBrutas = ehOfx ? parsearOfx(texto) : parsearCsv(texto);
 
@@ -448,12 +421,31 @@ async function processarArquivoImportacao() {
         const clienteId = ClientModule.getClientId();
         categoriasCacheImportacao = await DatabaseModule.getCategorias();
 
+        // Regras do cliente e regras globais: 1 consulta cada, não 1 por linha.
+        regrasClienteCacheImportacao = (typeof RegrasAprendidasModule !== 'undefined' && RegrasAprendidasModule.listarDoCliente)
+            ? await RegrasAprendidasModule.listarDoCliente(clienteId)
+            : null;
+        if (typeof RegrasGlobaisModule !== 'undefined') await RegrasGlobaisModule.carregar(true);
+
         linhasValidas.forEach(l => {
             if (!l.importHash) l.importHash = gerarImportHashCsv(l.data, l.valorAbs, l.descricao);
         });
 
+        // Lançamentos IDÊNTICOS no mesmo arquivo (dois cafés de R$ 5 no mesmo
+        // dia) geravam o mesmo hash e o segundo era descartado como "duplicado".
+        // A 1ª ocorrência mantém o hash de sempre (compatível com o que já foi
+        // importado); as seguintes ganham "#2", "#3"...
+        const ocorrenciasNoArquivo = new Map();
+        linhasValidas.forEach(l => {
+            const n = (ocorrenciasNoArquivo.get(l.importHash) || 0) + 1;
+            ocorrenciasNoArquivo.set(l.importHash, n);
+            if (n > 1) l.importHash = `${l.importHash}#${n}`;
+        });
+
         const hashesDoArquivo = linhasValidas.map(l => l.importHash);
         hashesJaImportadosCache = await buscarHashesJaImportados(clienteId, hashesDoArquivo);
+        const manuaisParaComparar = await buscarLancamentosManuaisParaComparar(clienteId, linhasValidas);
+        let totalPossiveisDuplicatasManuais = 0;
 
         linhasImportacao = [];
         let totalPreClassificadas = 0;
@@ -462,12 +454,20 @@ async function processarArquivoImportacao() {
         for (const linha of linhasValidas) {
             const duplicada = hashesJaImportadosCache.has(linha.importHash);
 
-            // Regras de negócio específicas do padrão Nubank (RDB,
-            // fatura, reembolso, "Compra no débito -") — rodam ANTES do
-            // pipeline normal de classificação, porque são casos
-            // especiais que não devem contar como receita/despesa de
-            // verdade, ou que só precisam de uma limpeza visual na
-            // descrição. Ver preClassificarTransacao() no topo do arquivo.
+            // Já existe um lançamento MANUAL com a mesma data, valor e tipo?
+            // Cada manual "cobre" no máximo uma linha do extrato.
+            let possivelDuplicataManual = false;
+            if (!duplicada) {
+                const chaveManual = chaveComparacaoManual(linha.data, linha.valorAbs, linha.tipo);
+                const restantes = manuaisParaComparar.get(chaveManual) || 0;
+                if (restantes > 0) {
+                    manuaisParaComparar.set(chaveManual, restantes - 1);
+                    possivelDuplicataManual = true;
+                    totalPossiveisDuplicatasManuais++;
+                }
+            }
+
+            // Regras Nubank (RDB, fatura, reembolso, "Compra no débito -")
             const valorComSinal   = linha.tipo === 'despesa' ? -linha.valorAbs : linha.valorAbs;
             const preClassificacao = preClassificarTransacao(linha.descricao, valorComSinal);
             const descricaoFinal   = preClassificacao.descricaoLimpa || linha.descricao;
@@ -476,9 +476,6 @@ async function processarArquivoImportacao() {
             if (duplicada) {
                 classificacao = { categoriaId: null, categoriaNome: null, origem: 'duplicada' };
             } else if (preClassificacao.bloquearCategoria) {
-                // Tenta achar uma categoria real de Transferência Interna
-                // já cadastrada; se não existir, cai de volta no pipeline
-                // normal (sem quebrar nada).
                 classificacao = encontrarCategoriaDeTransferencia(linha.tipo) ||
                     await classificarLinhaImportacao(clienteId, descricaoFinal, linha.tipo);
                 if (classificacao.origem === 'pre_classificado') totalPreClassificadas++;
@@ -499,18 +496,27 @@ async function processarArquivoImportacao() {
                 termoCorrespondente: classificacao.termoCorrespondente || null,
                 importHash:  linha.importHash,
                 duplicada,
-                incluir:     !duplicada
+                possivelDuplicataManual,
+                incluir:     !duplicada && !possivelDuplicataManual,
+                // Só vira regra aprendida o que o USUÁRIO escolheu/corrigiu na tabela —
+                // aceitar uma sugestão automática não ensina nada ao sistema.
+                decididaPeloUsuario: false
             });
         }
 
         renderizarTabelaRevisao();
 
         const totalDuplicadas = linhasImportacao.filter(l => l.duplicada).length;
+        const totalSemCategoria = linhasImportacao.filter(l => !l.duplicada && !l.categoriaId).length;
         let mensagem = `${linhasImportacao.length} lançamento(s) encontrado(s) e pronto(s) para revisão.`;
         if (linhasDescartadas > 0) mensagem += ` ${linhasDescartadas} linha(s) foram ignoradas por falta de data/valor reconhecíveis.`;
         if (totalPreClassificadas > 0) mensagem += ` ${totalPreClassificadas} foram pré-classificada(s) automaticamente como Transferência Interna (RDB/fatura/reembolso).`;
+        const totalPessoas = linhasImportacao.filter(l => l.origem === 'pessoa').length;
+        if (totalPessoas > 0) mensagem += ` ${totalPessoas} são transferências/PIX para pessoas — escolha a categoria de cada uma (👤).`;
         if (totalAproximadas > 0) mensagem += ` ${totalAproximadas} tiveram sugestão APROXIMADA (🔎) — vale a pena conferir essas antes de confirmar.`;
         if (totalDuplicadas > 0)   mensagem += ` ${totalDuplicadas} já tinham sido importado(s) antes e vêm desmarcado(s) por padrão.`;
+        if (totalPossiveisDuplicatasManuais > 0) mensagem += ` ${totalPossiveisDuplicatasManuais} parecem gastos que você já lançou à mão (mesma data e valor) — vêm desmarcados; marque se forem gastos diferentes.`;
+        if (totalSemCategoria > 0) mensagem += ` ${totalSemCategoria} ainda estão sem categoria (marcadas com uma barra âmbar) — clique no campo Categoria e digite para buscar.`;
         exibirStatusImportacao(mensagem, false);
 
     } catch (err) {
@@ -519,6 +525,40 @@ async function processarArquivoImportacao() {
     } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Processar Arquivo'; }
     }
+}
+
+function chaveComparacaoManual(data, valor, tipo) {
+    return `${String(data).slice(0, 10)}|${Math.abs(parseFloat(valor) || 0).toFixed(2)}|${tipo}`;
+}
+
+/**
+ * Lançamentos feitos À MÃO (pelo cliente ou pelo admin) no intervalo do
+ * arquivo → Map "data|valor|tipo" → quantidade. Serve só para AVISAR de
+ * possível duplicata; se a consulta falhar, a importação segue normal.
+ */
+async function buscarLancamentosManuaisParaComparar(clienteId, linhas) {
+    const mapa = new Map();
+    if (!clienteId || !linhas.length) return mapa;
+    try {
+        const datas = linhas.map(l => l.data).sort();
+        const { data, error } = await supabaseClient
+            .from('transacoes')
+            .select('data_competencia, valor, tipo')
+            .eq('client_id', clienteId)
+            // Lançamento feito à mão pelo cliente pode vir sem `origem` (app.js
+            // não envia o campo) — por isso o null também entra na comparação.
+            .or('origem.is.null,origem.in.(manual,lancamento_admin)')
+            .gte('data_competencia', datas[0])
+            .lte('data_competencia', datas[datas.length - 1]);
+        if (error) throw error;
+        (data || []).forEach(t => {
+            const k = chaveComparacaoManual(t.data_competencia, t.valor, t.tipo);
+            mapa.set(k, (mapa.get(k) || 0) + 1);
+        });
+    } catch (err) {
+        console.warn('⚠️ Não foi possível comparar com lançamentos manuais — prosseguindo sem esse aviso:', err.message);
+    }
+    return mapa;
 }
 
 async function buscarHashesJaImportados(clienteId, hashes) {
@@ -550,86 +590,354 @@ function esconderTabelaRevisao() {
 }
 
 // ══════════════════════════════════════════════════════════════
-// RENDERIZAÇÃO DA TABELA DE REVISÃO
+// CATEGORIA POR BUSCA (combobox) — substitui o <select> gigante
 // ══════════════════════════════════════════════════════════════
 
-function montarOpcoesCategoriaImportacao(categoriaSelecionadaId) {
-    const porGrupo = {};
-    categoriasCacheImportacao.forEach(c => {
-        const chave = `${c.tipo}__${c.grupo}`;
-        if (!porGrupo[chave]) porGrupo[chave] = [];
-        porGrupo[chave].push(c);
-    });
+let catComboAtivo = null; // { input, linha, itens: [categorias exibidas], indice, termo }
 
-    // Receita antes de despesa, mantendo os grupos dentro de cada tipo.
-    const ordemGrupos = [
-        'receita__renda', 'receita__transferencia',
-        'despesa__essencial', 'despesa__estilo_de_vida', 'despesa__investimento',
-        'despesa__divida', 'despesa__transferencia'
-    ];
-    const chaves = [...ordemGrupos.filter(k => porGrupo[k]), ...Object.keys(porGrupo).filter(k => !ordemGrupos.includes(k))];
-
-    let html = '<option value="">Selecione...</option>';
-    chaves.forEach(chave => {
-        const [, grupo] = chave.split('__');
-        const label = GRUPO_LABEL_IMPORTACAO[grupo] || grupo;
-        porGrupo[chave]
-            .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-            .forEach(c => {
-                const selecionado = c.id === categoriaSelecionadaId ? 'selected' : '';
-                html += `<option value="${c.id}" data-tipo="${c.tipo}" ${selecionado}>${label} — ${c.nome}</option>`;
-            });
-    });
-    return html;
+/** Índice de busca (normalizado) guardado na própria categoria — calculado 1 vez. */
+function indiceBuscaCategoria(c) {
+    if (!c._idx) {
+        c._idx = {
+            nome:  normalizarTexto(c.nome),
+            chaves: normalizarTexto(Array.isArray(c.palavras_chave) ? c.palavras_chave.join(' ') : ''),
+            extra: normalizarTexto(`${c.codigo_contabil || ''} ${(c.grupo || '').replace(/_/g, ' ')}`)
+        };
+    }
+    return c._idx;
 }
+
+/** 0 = não bate; maior = mais relevante. Todas as palavras digitadas precisam bater. */
+function pontuarCategoria(c, palavras) {
+    const idx = indiceBuscaCategoria(c);
+    let total = 0;
+    for (const p of palavras) {
+        let s = 0;
+        if (idx.nome.startsWith(p))                              s = 100;
+        else if (idx.nome.split(' ').some(w => w.startsWith(p))) s = 80;
+        else if (idx.nome.includes(p))                           s = 60;
+        else if (idx.chaves.includes(p))                         s = 30;
+        else if (idx.extra.includes(p))                          s = 10;
+        if (!s) return 0;
+        total += s;
+    }
+    return total;
+}
+
+function ordenarCategoriasPorGrupo(cats) {
+    const pos = (g) => { const i = ORDEM_GRUPOS_COMBO.indexOf(g); return i === -1 ? 99 : i; };
+    return [...cats].sort((a, b) => (pos(a.grupo) - pos(b.grupo)) || a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+
+function nomeDaCategoria(id) {
+    return (categoriasCacheImportacao || []).find(c => c.id === id)?.nome || '';
+}
+
+function textoSimples(t) {
+    return String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function obterPainelCategoria() {
+    let painel = document.getElementById('catComboPanel');
+    if (!painel) {
+        painel = document.createElement('div');
+        painel.id = 'catComboPanel';
+        painel.className = 'cat-panel hidden';
+        painel.setAttribute('role', 'listbox');
+        // mousedown (e não click) + preventDefault: o campo não perde o foco
+        // antes da escolha ser registrada.
+        painel.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            const item = e.target.closest('.cat-panel__item');
+            if (item) selecionarCategoriaPorId(item.dataset.id);
+        });
+        document.body.appendChild(painel);
+    }
+    return painel;
+}
+
+function renderizarPainelCategoria(termo) {
+    if (!catComboAtivo) return;
+    const { linha } = catComboAtivo;
+    const painel = obterPainelCategoria();
+
+    const doTipo   = (categoriasCacheImportacao || []).filter(c => c.tipo === linha.tipo);
+    const palavras = normalizarTexto(termo).split(/\s+/).filter(Boolean);
+
+    let itens;
+    if (!palavras.length) {
+        itens = ordenarCategoriasPorGrupo(doTipo);
+    } else {
+        itens = doTipo
+            .map(c => ({ c, s: pontuarCategoria(c, palavras) }))
+            .filter(x => x.s > 0)
+            .sort((a, b) => (b.s - a.s) || a.c.nome.localeCompare(b.c.nome, 'pt-BR'))
+            .map(x => x.c)
+            .slice(0, 60);
+    }
+
+    catComboAtivo.itens = itens;
+    catComboAtivo.termo = termo;
+
+    const indiceSelecionada = itens.findIndex(c => c.id === linha.categoriaId);
+    catComboAtivo.indice = (!palavras.length && indiceSelecionada >= 0) ? indiceSelecionada : 0;
+
+    if (!itens.length) {
+        painel.innerHTML = `<p class="cat-panel__vazio">Nenhuma categoria de <strong>${linha.tipo}</strong> encontrada para “${textoSimples(termo)}”.<br>Se for de outro tipo, mude o campo <strong>Tipo</strong> da linha.</p>`;
+        return;
+    }
+
+    let html = '';
+    let grupoAnterior = null;
+    itens.forEach((c, i) => {
+        if (!palavras.length && c.grupo !== grupoAnterior) {
+            html += `<div class="cat-panel__grupo">${textoSimples(GRUPO_LABEL_IMPORTACAO[c.grupo] || c.grupo || 'Outras')}</div>`;
+            grupoAnterior = c.grupo;
+        }
+        const classes = ['cat-panel__item'];
+        if (i === catComboAtivo.indice) classes.push('ativo');
+        if (c.id === linha.categoriaId)  classes.push('selecionada');
+        html += `<div class="${classes.join(' ')}" role="option" data-id="${c.id}" data-i="${i}">
+            ${c.codigo_contabil ? `<span class="cat-panel__cod">${textoSimples(c.codigo_contabil)}</span>` : ''}
+            <span class="cat-panel__nome">${textoSimples(c.nome)}</span>
+            ${palavras.length ? `<span class="cat-panel__tag">${textoSimples(GRUPO_LABEL_IMPORTACAO[c.grupo] || '')}</span>` : ''}
+        </div>`;
+    });
+    painel.innerHTML = html;
+
+    painel.querySelector('.cat-panel__item.ativo')?.scrollIntoView({ block: 'nearest' });
+}
+
+function posicionarPainelCategoria() {
+    if (!catComboAtivo) return;
+    const painel = obterPainelCategoria();
+    const rect   = catComboAtivo.input.getBoundingClientRect();
+    const alturaJanela  = window.visualViewport?.height ?? window.innerHeight;
+    const larguraJanela = window.innerWidth;
+
+    const abaixo = alturaJanela - rect.bottom - 10;
+    const acima  = rect.top - 10;
+    const subir  = abaixo < 200 && acima > abaixo;
+    const largura = Math.min(Math.max(rect.width, 300), larguraJanela - 16);
+    const left    = Math.max(8, Math.min(rect.left, larguraJanela - largura - 8));
+
+    painel.style.left      = `${left}px`;
+    painel.style.width     = `${largura}px`;
+    painel.style.maxHeight = `${Math.max(120, Math.min(300, subir ? acima : abaixo))}px`;
+
+    if (subir) {
+        painel.style.top    = 'auto';
+        painel.style.bottom = `${alturaJanela - rect.top + 4}px`;
+    } else {
+        painel.style.bottom = 'auto';
+        painel.style.top    = `${rect.bottom + 4}px`;
+    }
+}
+
+function abrirPainelCategoria(input, linha, termo) {
+    catComboAtivo = { input, linha, itens: [], indice: 0, termo: '' };
+    renderizarPainelCategoria(termo);
+    posicionarPainelCategoria();
+    obterPainelCategoria().classList.remove('hidden');
+}
+
+/** Fecha o painel e devolve ao campo o nome da categoria realmente escolhida. */
+function fecharPainelCategoria() {
+    document.getElementById('catComboPanel')?.classList.add('hidden');
+    if (catComboAtivo) {
+        const { input, linha } = catComboAtivo;
+        input.value = nomeDaCategoria(linha.categoriaId);
+        catComboAtivo = null;
+    }
+}
+
+function destacarItemPainel(novoIndice) {
+    if (!catComboAtivo || !catComboAtivo.itens.length) return;
+    const total = catComboAtivo.itens.length;
+    catComboAtivo.indice = Math.max(0, Math.min(total - 1, novoIndice));
+    const painel = obterPainelCategoria();
+    painel.querySelectorAll('.cat-panel__item.ativo').forEach(el => el.classList.remove('ativo'));
+    const alvo = painel.querySelector(`.cat-panel__item[data-i="${catComboAtivo.indice}"]`);
+    if (alvo) { alvo.classList.add('ativo'); alvo.scrollIntoView({ block: 'nearest' }); }
+}
+
+function selecionarCategoriaPorId(categoriaId) {
+    if (!catComboAtivo) return;
+    const cat = (categoriasCacheImportacao || []).find(c => c.id === categoriaId);
+    if (!cat) return;
+
+    const { input, linha } = catComboAtivo;
+    linha.categoriaId = cat.id;
+    linha.decididaPeloUsuario = true;
+    if (!linha.duplicada) {
+        linha.origem = 'usuario';
+        linha.termoCorrespondente = null;
+    }
+
+    fecharPainelCategoria();      // sincroniza o texto do campo com a escolha
+    input.value = cat.nome;
+    atualizarEstadoLinhaDom(input.closest('tr'), linha);
+}
+
+function limparCategoriaDaLinha(linha, tr) {
+    linha.categoriaId = null;
+    linha.decididaPeloUsuario = false;
+    if (!linha.duplicada) {
+        linha.origem = 'manual';
+        linha.termoCorrespondente = null;
+    }
+    const input = tr?.querySelector('.cat-combo__input');
+    if (input) input.value = '';
+    atualizarEstadoLinhaDom(tr, linha);
+}
+
+function tratarTecladoCombo(e, input, linha) {
+    const aberto = !!catComboAtivo && catComboAtivo.input === input;
+
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (!aberto) abrirPainelCategoria(input, linha, '');
+        else destacarItemPainel(catComboAtivo.indice + 1);
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (aberto) destacarItemPainel(catComboAtivo.indice - 1);
+    } else if (e.key === 'Enter') {
+        if (aberto && catComboAtivo.itens[catComboAtivo.indice]) {
+            e.preventDefault();
+            selecionarCategoriaPorId(catComboAtivo.itens[catComboAtivo.indice].id);
+        } else if (aberto) {
+            e.preventDefault();
+        }
+    } else if (e.key === 'Escape') {
+        if (aberto) { e.preventDefault(); e.stopPropagation(); fecharPainelCategoria(); }
+    } else if (e.key === 'Tab') {
+        // Digitou algo e apertou Tab: confirma a opção destacada (fluxo rápido).
+        if (aberto && catComboAtivo.termo.trim() && catComboAtivo.itens[catComboAtivo.indice]) {
+            selecionarCategoriaPorId(catComboAtivo.itens[catComboAtivo.indice].id);
+        }
+    }
+}
+
+function ligarComboCategoria(tr, linha) {
+    const input  = tr.querySelector('.cat-combo__input');
+    const limpar = tr.querySelector('.cat-combo__limpar');
+    if (!input) return;
+
+    input.addEventListener('focus', () => {
+        input.select();
+        abrirPainelCategoria(input, linha, '');
+    });
+    input.addEventListener('input', () => {
+        if (!catComboAtivo || catComboAtivo.input !== input) abrirPainelCategoria(input, linha, input.value);
+        else { renderizarPainelCategoria(input.value); posicionarPainelCategoria(); }
+        obterPainelCategoria().classList.remove('hidden');
+    });
+    input.addEventListener('keydown', (e) => tratarTecladoCombo(e, input, linha));
+    input.addEventListener('blur', () => {
+        setTimeout(() => { if (catComboAtivo && catComboAtivo.input === input) fecharPainelCategoria(); }, 120);
+    });
+
+    limpar?.addEventListener('mousedown', (e) => e.preventDefault());
+    limpar?.addEventListener('click', () => {
+        limparCategoriaDaLinha(linha, tr);
+        input.focus();
+    });
+}
+
+function initPainelCategoria() {
+    // Rolagem de qualquer container (tabela, modal, página): reposiciona o
+    // painel junto do campo, ou fecha se o campo saiu da tela.
+    document.addEventListener('scroll', (e) => {
+        if (!catComboAtivo) return;
+        const painel = document.getElementById('catComboPanel');
+        if (painel && painel.contains(e.target)) return;
+        const r = catComboAtivo.input.getBoundingClientRect();
+        const alturaJanela = window.visualViewport?.height ?? window.innerHeight;
+        if (r.bottom < 0 || r.top > alturaJanela) fecharPainelCategoria();
+        else posicionarPainelCategoria();
+    }, true);
+
+    window.addEventListener('resize', () => { if (catComboAtivo) posicionarPainelCategoria(); });
+}
+
+// ══════════════════════════════════════════════════════════════
+// RENDERIZAÇÃO DA TABELA DE REVISÃO
+// ══════════════════════════════════════════════════════════════
 
 const ORIGEM_BADGE_LABEL = {
     aprendida:                { texto: '🧠 Aprendida',           classe: 'aprendida' },
     palavra_chave:             { texto: '🔑 Sinônimo',            classe: 'local'     },
     palavra_chave_aproximada: { texto: '🔎 Sugestão aproximada', classe: 'manual'    },
+    global:                    { texto: '🌐 Regra global',        classe: 'aprendida' },
+    pessoa:                    { texto: '👤 Escolha a categoria', classe: 'manual'    },
     local:                     { texto: '🤖 Sugerida',            classe: 'local'     },
     pre_classificado:         { texto: '🏦 Pré-classificado',    classe: 'aprendida' },
+    usuario:                   { texto: '✅ Escolhida por você',  classe: 'aprendida' },
     manual:                    { texto: '✋ Manual',              classe: 'manual'    },
     duplicada:                 { texto: '⚠️ Já importada',        classe: 'duplicada' }
 };
+
+/**
+ * Selos com um termo/sinônimo específico por trás (Sinônimo, Sugestão
+ * aproximada, Aprendida, Regra global) ficam clicáveis — ao tocar,
+ * mostram QUAL termo reconheceu a descrição.
+ */
+function montarBadgeOrigemHtml(linha) {
+    const badge = ORIGEM_BADGE_LABEL[linha.origem] || ORIGEM_BADGE_LABEL.manual;
+    const aviso = linha.possivelDuplicataManual
+        ? `<br><span class="import-review__origem-badge import-review__origem-badge--manual" title="Já existe um lançamento manual com a mesma data e valor. Marque a caixa só se for outro gasto.">⚠️ Parece já lançada</span>`
+        : '';
+    if (linha.termoCorrespondente) {
+        return `<button type="button" class="import-review__origem-badge import-review__origem-badge--${badge.classe} import-review__origem-badge--clicavel"
+                       data-termo="${escaparHtmlAtributo(linha.termoCorrespondente)}" title="Toque para ver o termo reconhecido">${badge.texto} 🛈</button>${aviso}`;
+    }
+    return `<span class="import-review__origem-badge import-review__origem-badge--${badge.classe}">${badge.texto}</span>${aviso}`;
+}
+
+function montarComboCategoriaHtml(linha) {
+    return `
+        <div class="cat-combo">
+            <input type="text" class="cat-combo__input import-input-categoria"
+                   value="${escaparHtmlAtributo(nomeDaCategoria(linha.categoriaId))}"
+                   placeholder="🔎 Digite para buscar a categoria..."
+                   autocomplete="off" spellcheck="false" ${linha.duplicada ? 'disabled' : ''}>
+            <button type="button" class="cat-combo__limpar" title="Limpar categoria" aria-label="Limpar categoria" tabindex="-1" ${linha.duplicada ? 'disabled' : ''}>✕</button>
+        </div>`;
+}
+
+/** Atualiza só o que depende da categoria: marca âmbar e selo de origem. */
+function atualizarEstadoLinhaDom(tr, linha) {
+    if (!tr) return;
+    tr.classList.toggle('import-row--sem-categoria', !linha.duplicada && !linha.categoriaId);
+    const celulaOrigem = tr.querySelector('.imp-c-origem');
+    if (celulaOrigem) celulaOrigem.innerHTML = montarBadgeOrigemHtml(linha);
+}
 
 function renderizarTabelaRevisao() {
     const corpo = document.getElementById('importReviewTableBody');
     if (!corpo) return;
 
-    corpo.innerHTML = linhasImportacao.map(linha => {
-        const badge = ORIGEM_BADGE_LABEL[linha.origem] || ORIGEM_BADGE_LABEL.manual;
-        const classeLinha = linha.duplicada ? 'import-row--duplicada' : '';
+    fecharPainelCategoria();
 
-        // Selos com um termo/sinônimo específico por trás (Sinônimo,
-        // Sugestão aproximada, Aprendida) ficam clicáveis — ao tocar,
-        // mostra QUAL termo reconheceu aquela descrição. Selos sem
-        // termo associado (Manual, Pré-classificado, Já importada)
-        // continuam apenas informativos, sem interação.
-        const temTermo = !!linha.termoCorrespondente;
-        const badgeHtml = temTermo
-            ? `<button type="button" class="import-review__origem-badge import-review__origem-badge--${badge.classe} import-review__origem-badge--clicavel"
-                       data-termo="${escaparHtmlAtributo(linha.termoCorrespondente)}" title="Toque para ver o termo reconhecido">${badge.texto} 🛈</button>`
-            : `<span class="import-review__origem-badge import-review__origem-badge--${badge.classe}">${badge.texto}</span>`;
+    corpo.innerHTML = linhasImportacao.map(linha => {
+        const classes = [];
+        if (linha.duplicada) classes.push('import-row--duplicada');
+        if (!linha.duplicada && !linha.categoriaId) classes.push('import-row--sem-categoria');
 
         return `
-            <tr class="${classeLinha}" data-id-temp="${linha.idTemp}">
-                <td><input type="checkbox" class="import-check-incluir" ${linha.incluir ? 'checked' : ''} ${linha.duplicada ? 'disabled' : ''}></td>
-                <td><input type="date" class="import-input-data" value="${linha.data}"></td>
-                <td><input type="text" class="import-input-descricao import-descricao-input" value="${escaparHtmlAtributo(linha.descricao)}"></td>
-                <td><input type="number" class="import-input-valor" value="${linha.valor.toFixed(2)}" step="0.01" min="0"></td>
-                <td>
+            <tr class="${classes.join(' ')}" data-id-temp="${linha.idTemp}">
+                <td class="imp-c imp-c-check"><input type="checkbox" class="import-check-incluir" ${linha.incluir ? 'checked' : ''} ${linha.duplicada ? 'disabled' : ''}></td>
+                <td class="imp-c imp-c-data"><input type="date" class="import-input-data" value="${linha.data}"></td>
+                <td class="imp-c imp-c-desc"><input type="text" class="import-input-descricao import-descricao-input" value="${escaparHtmlAtributo(linha.descricao)}" title="${escaparHtmlAtributo(linha.descricao)}"></td>
+                <td class="imp-c imp-c-valor"><input type="number" class="import-input-valor" value="${linha.valor.toFixed(2)}" step="0.01" min="0"></td>
+                <td class="imp-c imp-c-tipo">
                     <select class="import-select-tipo">
                         <option value="receita" ${linha.tipo === 'receita' ? 'selected' : ''}>Receita</option>
                         <option value="despesa" ${linha.tipo === 'despesa' ? 'selected' : ''}>Despesa</option>
                     </select>
                 </td>
-                <td>
-                    <select class="import-select-categoria">
-                        ${montarOpcoesCategoriaImportacao(linha.categoriaId)}
-                    </select>
-                </td>
-                <td>${badgeHtml}</td>
+                <td class="imp-c imp-c-cat">${montarComboCategoriaHtml(linha)}</td>
+                <td class="imp-c imp-c-origem">${montarBadgeOrigemHtml(linha)}</td>
             </tr>
         `;
     }).join('');
@@ -637,8 +945,12 @@ function renderizarTabelaRevisao() {
     document.getElementById('importReviewContainer')?.classList.remove('hidden');
     document.getElementById('importSelecionarTodas').checked = linhasImportacao.some(l => l.incluir);
 
-    corpo.querySelectorAll('.import-review__origem-badge--clicavel').forEach(btn => {
-        btn.addEventListener('click', () => {
+    // Delegação única para os selos clicáveis (o selo é redesenhado ao escolher categoria)
+    if (!corpo._badgeLigado) {
+        corpo._badgeLigado = true;
+        corpo.addEventListener('click', (e) => {
+            const btn = e.target.closest('.import-review__origem-badge--clicavel');
+            if (!btn) return;
             const termo = btn.dataset.termo;
             if (typeof UIModule !== 'undefined' && UIModule.showMessage) {
                 UIModule.showMessage(`🔑 Reconhecido pelo termo/regra: "${termo}"`, 'info', 4500);
@@ -646,7 +958,7 @@ function renderizarTabelaRevisao() {
                 alert(`Reconhecido pelo termo/regra: "${termo}"`);
             }
         });
-    });
+    }
 
     ligarEventosLinhasImportacao();
 }
@@ -675,26 +987,37 @@ function ligarEventosLinhasImportacao() {
         });
         tr.querySelector('.import-select-tipo')?.addEventListener('change', (e) => {
             linha.tipo = e.target.value;
+
+            // Categoria do outro tipo não vale mais — limpa em vez de travar depois.
+            const cat = (categoriasCacheImportacao || []).find(c => c.id === linha.categoriaId);
+            if (cat && cat.tipo !== linha.tipo) {
+                limparCategoriaDaLinha(linha, tr);
+                if (typeof UIModule !== 'undefined' && UIModule.showMessage) {
+                    UIModule.showMessage(`Categoria "${cat.nome}" removida: ela é de ${cat.tipo}. Escolha uma categoria de ${linha.tipo}.`, 'info', 4000);
+                }
+            }
         });
-        tr.querySelector('.import-select-categoria')?.addEventListener('change', (e) => {
-            linha.categoriaId = e.target.value || null;
-        });
+
+        ligarComboCategoria(tr, linha);
     });
 }
 
+/**
+ * Chamada depois que o cliente cria uma categoria nova (ver
+ * categoria-personalizada.js): recarrega a lista e mantém o texto dos
+ * campos de categoria coerente. A nova categoria já aparece nas buscas.
+ */
 async function atualizarCategoriasNaTabelaImportacao() {
     if (!linhasImportacao.length) return;
 
     categoriasCacheImportacao = await DatabaseModule.getCategorias();
 
     document.querySelectorAll('#importReviewTableBody tr').forEach(tr => {
-        const idTemp = tr.dataset.idTemp;
-        const linha  = linhasImportacao.find(l => l.idTemp === idTemp);
-        if (!linha) return;
-
-        const select = tr.querySelector('.import-select-categoria');
-        if (!select) return;
-        select.innerHTML = montarOpcoesCategoriaImportacao(linha.categoriaId);
+        const linha = linhasImportacao.find(l => l.idTemp === tr.dataset.idTemp);
+        const input = tr.querySelector('.cat-combo__input');
+        if (linha && input && document.activeElement !== input) {
+            input.value = nomeDaCategoria(linha.categoriaId);
+        }
     });
 }
 
@@ -708,11 +1031,15 @@ function initImportacaoExtrato() {
         linhasImportacao.forEach(l => { if (!l.duplicada) l.incluir = marcarTodas; });
         document.querySelectorAll('.import-check-incluir:not(:disabled)').forEach(chk => { chk.checked = marcarTodas; });
     });
+
+    initPainelCategoria();
 }
 
 function cancelarImportacao() {
+    fecharPainelCategoria();
     linhasImportacao = [];
     hashesJaImportadosCache = new Set();
+    regrasClienteCacheImportacao = null;
     esconderTabelaRevisao();
     document.getElementById('importResumoStatus')?.classList.add('hidden');
     const input = document.getElementById('importFileInput');
@@ -725,13 +1052,11 @@ function cancelarImportacao() {
 // ══════════════════════════════════════════════════════════════
 /**
  * O toast nasce no <body>, fora do modal, e por isso era pintado
- * ATRÁS do pop-up de importação — a mensagem que diz exatamente qual
- * linha está travando a gravação ficava ilegível. Aqui o aviso passa a
- * ser mostrado em três lugares ao mesmo tempo:
+ * ATRÁS do pop-up de importação. Aqui o aviso é mostrado em três
+ * lugares ao mesmo tempo:
  *   1) banner fixo no topo do container de revisão (#importAvisoImpedimento);
  *   2) a própria linha da tabela destacada em vermelho;
  *   3) rolagem automática até essa linha.
- * O toast continua sendo disparado, mas já não é a única pista.
  */
 function destacarImpedimentoImportacao(linha, mensagem) {
     UIModule.showError(mensagem);
@@ -767,10 +1092,7 @@ function limparImpedimentoImportacao() {
  * pra importar, exige categoria selecionada e verifica
  * `cat.tipo === linha.tipo` — se não bater, a importação inteira é
  * bloqueada com uma mensagem apontando exatamente qual linha está
- * inconsistente. Essa checagem NÃO depende de confiança de
- * classificação nenhuma; roda por igual em toda linha, tenha ela vindo
- * de uma regra aprendida, um sinônimo, uma sugestão aproximada ou uma
- * escolha 100% manual.
+ * inconsistente.
  */
 async function confirmarImportacao() {
     const clientId = ClientModule.getClientId();
@@ -782,6 +1104,7 @@ async function confirmarImportacao() {
     }
 
     limparImpedimentoImportacao();
+    fecharPainelCategoria();
 
     for (const linha of linhasParaSalvar) {
         if (!linha.categoriaId) {
@@ -820,6 +1143,7 @@ async function confirmarImportacao() {
 
         if (typeof RegrasAprendidasModule !== 'undefined') {
             for (const linha of linhasParaSalvar) {
+                if (!linha.decididaPeloUsuario) continue; // aceitou sugestão: não ensina
                 if (!linha.descricao?.trim()) continue;
                 try {
                     await RegrasAprendidasModule.salvarOuAtualizarRegra({
@@ -881,4 +1205,4 @@ if (document.readyState === 'loading') {
     initImportacaoExtrato();
 }
 
-console.log('✅ importacao-extrato.js carregado (regras Nubank + selo de confiança alta/aproximada)');
+console.log('✅ importacao-extrato.js carregado (categoria por busca + layout sem rolagem lateral)');

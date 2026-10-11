@@ -104,8 +104,21 @@ async function loadAllClientes() {
 
     if (error) throw error;
 
+    // Ciclo financeiro (dia de recebimento) de cada cliente — vem de
+    // `clientes` direto, porque a view não tem essas colunas. Se a
+    // migração ainda não rodou, segue sem ciclo (mês normal).
+    const ciclos = {};
+    const ids = (data || []).map(c => c.id);
+    if (ids.length) {
+      const { data: linhasCiclo, error: erroCiclo } = await supabaseClient
+        .from('clientes').select('id, ciclo_tipo, ciclo_dia, ciclo_definido_em').in('id', ids);
+      if (!erroCiclo) (linhasCiclo || []).forEach(l => { if (l.ciclo_definido_em) ciclos[l.id] = l; });
+    }
+
     const clientes = (data || []).map(c => ({
       ...c,
+      ciclo_tipo:   ciclos[c.id]?.ciclo_tipo || null,
+      ciclo_dia:    ciclos[c.id]?.ciclo_dia  || null,
       nomeCompleto: c.nome,
       nome:         nomeExibicaoCliente(c.nome, c.apelido)
     }));

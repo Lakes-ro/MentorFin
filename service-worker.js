@@ -16,8 +16,11 @@
  *   notificationclick — abre/foca o app quando o usuário toca na notificação
  */
 
-const APP_ICON  = '/logo.png';
-const APP_BADGE = '/logo.png';
+// Caminhos relativos ao próprio service worker: funcionam na raiz e em
+// subpastas (ex.: GitHub Pages em /usuario.github.io/mentorfin/).
+const APP_ICON  = new URL('logo.png', self.registration.scope).href;
+const APP_BADGE = APP_ICON;
+const APP_HOME  = self.registration.scope;
 
 // ── Ciclo de vida ──────────────────────────────────────────────
 // skipWaiting: instala o SW atualizado imediatamente
@@ -30,7 +33,7 @@ self.addEventListener('push', event => {
     let payload = {
         title: 'MentorFin',
         body:  'Você tem novidades no MentorFin!',
-        url:   '/',
+        url:   APP_HOME,
         tag:   'mentorfin-lembrete'
     };
 
@@ -48,7 +51,8 @@ self.addEventListener('push', event => {
         renotify:           true,
         requireInteraction: false,
         vibrate:            [200, 100, 200],
-        data:               { url: payload.url }
+        // url pode vir relativa ('admin.html', './') — resolve pela pasta do app
+        data:               { url: new URL(payload.url || './', APP_HOME).href }
     };
 
     event.waitUntil(
@@ -59,14 +63,18 @@ self.addEventListener('push', event => {
 // ── Toque na notificação → abre ou foca o app ─────────────────
 self.addEventListener('notificationclick', event => {
     event.notification.close();
-    const url = event.notification.data?.url || '/';
+    const url = event.notification.data?.url || APP_HOME;
 
     event.waitUntil(
         self.clients
             .matchAll({ type: 'window', includeUncontrolled: true })
             .then(clientList => {
+                const alvo = new URL(url);
+                const ehAdmin = alvo.pathname.endsWith('admin.html');
+                // Foca uma aba do mesmo painel (admin ou cliente), se já houver
                 for (const client of clientList) {
-                    if ('focus' in client) return client.focus();
+                    const mesmaArea = new URL(client.url).pathname.endsWith('admin.html') === ehAdmin;
+                    if (mesmaArea && 'focus' in client) return client.focus();
                 }
                 if (self.clients.openWindow) return self.clients.openWindow(url);
             })

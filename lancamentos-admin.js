@@ -64,7 +64,7 @@ const ClientModule = {
     getClientId: () => adminClienteSelecionadoId,
 
     async addTransaction(transactionData) {
-        const { data, error } = await supabaseClient.from('transacoes').insert([transactionData]).select();
+        const { data, error } = await supabaseClient.from('transacoes').insert([marcarComoLancamentoDoAdmin(transactionData)]).select();
         if (error) throw error;
         return data?.[0];
     },
@@ -87,11 +87,28 @@ const ClientModule = {
  * database.js) — só os métodos que importacao-extrato.js/
  * smart-input.js realmente chamam.
  */
+/**
+ * Tudo o que o ADMIN grava pelo painel (lançamento manual OU importação
+ * de extrato para um cliente) sai com origem 'lancamento_admin'. A
+ * gamificação usa isso para não contar o trabalho do admin como esforço
+ * do cliente (semanas em dia, conquistas, missões). Os números
+ * financeiros continuam usando esses lançamentos normalmente.
+ */
+function marcarComoLancamentoDoAdmin(linha) {
+    return linha && linha.origem === 'importacao' ? { ...linha, origem: 'lancamento_admin' } : linha;
+}
+
 const DatabaseModule = {
     async getCategorias() {
-        const { data, error } = await supabaseClient
-            .from('categorias')
-            .select('*')
+        // CORREÇÃO DE VAZAMENTO: o admin enxerga TODAS as categorias (RLS), inclusive as
+        // pessoais de outros clientes — que apareciam na importação e viravam regras
+        // apontando para categoria de outra pessoa. Agora: globais + as do cliente selecionado.
+        let consulta = supabaseClient.from('categorias').select('*');
+        consulta = adminClienteSelecionadoId
+            ? consulta.or(`cliente_id.is.null,cliente_id.eq.${adminClienteSelecionadoId}`)
+            : consulta.is('cliente_id', null);
+
+        const { data, error } = await consulta
             .order('tipo', { ascending: false })
             .order('grupo')
             .order('nome');
@@ -100,13 +117,13 @@ const DatabaseModule = {
     },
 
     async addTransaction(transactionData) {
-        const { data, error } = await supabaseClient.from('transacoes').insert([transactionData]).select();
+        const { data, error } = await supabaseClient.from('transacoes').insert([marcarComoLancamentoDoAdmin(transactionData)]).select();
         if (error) throw error;
         return data?.[0];
     },
 
     async addTransactionsBulk(transactionsData) {
-        const { data, error } = await supabaseClient.from('transacoes').insert(transactionsData).select();
+        const { data, error } = await supabaseClient.from('transacoes').insert(transactionsData.map(marcarComoLancamentoDoAdmin)).select();
         if (error) throw error;
         return data || [];
     }

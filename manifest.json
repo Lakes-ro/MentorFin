@@ -1,9 +1,10 @@
 {
+    "id": "./",
     "name": "MentorFin",
     "short_name": "MentorFin",
     "description": "Organize a sua vida financeira de forma simples",
-    "start_url": "/",
-    "scope": "/",
+    "start_url": "./",
+    "scope": "./",
     "display": "standalone",
     "orientation": "portrait-primary",
     "background_color": "#0f0f1e",

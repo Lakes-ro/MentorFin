@@ -23,6 +23,10 @@
  *   - "✓ Lida" nas mensagens do cliente que o admin já abriu.
  *   - Conversa vazia mostra sugestões de pergunta clicáveis, que
  *     preenchem o campo de texto.
+ *
+ * ATUALIZAÇÃO — SOM: resposta do admin toca som (som.js), vibra no
+ * Android, mostra "(n)" no título da aba e, com a aba em segundo
+ * plano, uma notificação do sistema (se a pessoa permitiu).
  */
 
 const MensagensModule = (() => {
@@ -78,6 +82,8 @@ const MensagensModule = (() => {
             } else {
                 badge.classList.add('hidden');
             }
+            // "(2) Gestor Financeiro" na aba do navegador enquanto houver mensagem não lida
+            if (typeof SomModule !== 'undefined') SomModule.contadorTitulo(count || 0);
         } catch (err) {
             console.warn('⚠️ MensagensModule.atualizarBadge:', err.message);
         }
@@ -120,7 +126,7 @@ const MensagensModule = (() => {
             const separador = dia !== diaAnterior ? `<div class="mensagem-dia">${dia}</div>` : '';
             diaAnterior = dia;
 
-            const autor = m.remetente === 'admin' ? '👤 Administrador · ' : '';
+            const autor = m.remetente === 'admin' ? '👤 Consultor · ' : '';
             const lida  = m.remetente === 'cliente' && m.lida ? ' · ✓ Lida' : '';
             return `${separador}
             <div class="mensagem-bolha mensagem-bolha--${m.remetente}">
@@ -197,13 +203,20 @@ const MensagensModule = (() => {
                 const nova = payload.new;
                 if (nova.remetente !== 'admin') return;
 
+                // Som + vibração (Android) + notificação do sistema se a aba
+                // estiver em segundo plano. Ver som.js.
+                if (typeof SomModule !== 'undefined') {
+                    SomModule.tocar('mensagem');
+                    SomModule.avisoSistema('💬 Nova mensagem do seu consultor', (nova.texto || '').slice(0, 140), 'mentorfin-mensagem');
+                }
+
                 const secaoMensagensAtiva = document.getElementById('cli-mensagens')?.classList.contains('active');
                 if (secaoMensagensAtiva) {
                     abrirConversa();
                 } else {
                     atualizarBadge();
                     if (typeof UIModule !== 'undefined') {
-                        UIModule.showMessage('💬 Nova mensagem do administrador', 'info', 4000);
+                        UIModule.showMessage('💬 Nova mensagem do seu consultor', 'info', 4000);
                     }
                 }
             })

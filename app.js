@@ -35,6 +35,10 @@
  * genéricas .btn-collapse/.collapse-icon/.collapse-content que já
  * existiam em style.css sem uso).
  *
+ * ATUALIZAÇÃO — AVISOS (out/2026): NotificacoesModule.inicializar()
+ * (notifications.js) passou a ser chamado após o login/onboarding — o
+ * arquivo existia mas não era carregado nem iniciado.
+ *
  * ATUALIZAÇÃO — CADASTRO E NOMES (phase1_identity_signup_and_names):
  * - Cadastro: o front só chama signUp com nome/apelido nos metadados.
  *   O trigger `on_auth_user_created` cria usuarios + perfil 'client' +
@@ -175,12 +179,20 @@ async function routeByRole(user, role) {
     UIModule.setText('clientNameDisplay', nomeParaSaudacao(perfilUsuarioCache));
 
     ClientModule.setClientId(user.id);
+    const ciclo = await carregarCicloCliente(user.id);
     await populateCategorySelect();
     UIModule.showScreen('clientScreen');
     await loadClientDashboard();
 
+    // 1º) "Quando você recebe?" (ciclo financeiro) — só se ainda não respondeu.
+    // 2º) Tour de 4 passos (tour.js), depois que a pergunta fechar.
+    posLoginPerguntaETour(user.id, ciclo);
+
     if (typeof MensagensModule !== 'undefined') {
         MensagensModule.inicializar(user.id).catch(() => {});
+    }
+    if (typeof NotificacoesModule !== 'undefined') {
+        NotificacoesModule.inicializar(user.id).catch(() => {});
     }
 }
 
@@ -371,12 +383,18 @@ async function handleOnboarding(event) {
 
         ClientModule.setClientId(user.id);
         UIModule.setText('clientNameDisplay', apelido);
+        const ciclo = await carregarCicloCliente(user.id);
         await populateCategorySelect();
         UIModule.showScreen('clientScreen');
         await loadClientDashboard();
 
+        posLoginPerguntaETour(user.id, ciclo);
+
         if (typeof MensagensModule !== 'undefined') {
             MensagensModule.inicializar(user.id).catch(() => {});
+        }
+        if (typeof NotificacoesModule !== 'undefined') {
+            NotificacoesModule.inicializar(user.id).catch(() => {});
         }
     } catch (error) {
         console.error('❌ Erro em handleOnboarding:', error);
@@ -427,7 +445,7 @@ function preencherAnaliseCliente() {
     el.classList.remove('bi-value--bom', 'bi-value--atencao', 'bi-value--ruim');
     if (renda <= 0) {
         el.textContent = '—';
-        UIModule.setText('biSavingsRateDetail', 'registre suas receitas para calcular');
+        UIModule.setText('biSavingsRateDetail', 'lance o que você recebe para calcular');
         return;
     }
     // Poupança = o que sobrou + o que foi investido, sobre a renda.
@@ -435,9 +453,9 @@ function preencherAnaliseCliente() {
     el.textContent = `${taxa.toFixed(0)}%`;
     el.classList.add(taxa >= 20 ? 'bi-value--bom' : taxa >= 0 ? 'bi-value--atencao' : 'bi-value--ruim');
     UIModule.setText('biSavingsRateDetail',
-        taxa >= 20 ? 'ótimo — meta de 20% alcançada'
-        : taxa >= 0 ? `faltam ${(20 - taxa).toFixed(0)} p.p. para a meta de 20%`
-        : 'gastou mais do que ganhou');
+        taxa >= 20 ? 'ótimo — você guardou 20% ou mais do que recebeu'
+        : taxa >= 0 ? `do que você recebeu · o recomendado é guardar 20%`
+        : 'você gastou mais do que recebeu');
 }
 
 async function loadClientDashboard() {
@@ -468,13 +486,14 @@ async function loadClientDashboard() {
         console.error('❌ loadClientDashboard (metas):', error);
     }
 
-    // Gamificação (nível, sequência, saúde, missões, cofrinhos,
+    // Gamificação (nível, semanas em dia, saúde, missões, cofrinhos,
     // evolução, conquistas) — usa TODO o histórico, não o filtro de
-    // período do Resumo. Ver gamificacao.js.
+    // período do Resumo. Busca as semanas marcadas e o XP guardado no
+    // banco antes de desenhar. Ver gamificacao.js (regras v2).
     try {
         if (typeof GamificacaoModule !== 'undefined') {
             const todas = DashboardModule.getData()?.todasTransacoes || [];
-            GamificacaoModule.render(todas, metasCliente, clientId);
+            await GamificacaoModule.render(todas, metasCliente, clientId);
         }
     } catch (error) {
         console.error('❌ loadClientDashboard (gamificação):', error);
@@ -505,6 +524,12 @@ function getFiltroDashboardAtual() {
     const hojeStr = typeof getDataDeHojeFormatoInput === 'function'
         ? getDataDeHojeFormatoInput()
         : formatarDataLocal(new Date());
+
+    if (periodo === 'ciclo_atual' || periodo === 'ciclo_anterior') {
+        const c = intervaloDoCiclo(periodo === 'ciclo_anterior' ? -1 : 0);
+        if (c) { filtro.dataInicio = c.inicio; filtro.dataFim = c.fim; }
+        return filtro;
+    }
 
     if (periodo === 'hoje') {
         filtro.dataInicio = hojeStr;
@@ -585,6 +610,12 @@ function getFiltroHistoricoAtual() {
         ? getDataDeHojeFormatoInput()
         : formatarDataLocal(new Date());
 
+    if (periodo === 'ciclo_atual' || periodo === 'ciclo_anterior') {
+        const c = intervaloDoCiclo(periodo === 'ciclo_anterior' ? -1 : 0);
+        if (c) { filtro.dataInicio = c.inicio; filtro.dataFim = c.fim; }
+        return filtro;
+    }
+
     if (periodo === 'hoje') {
         filtro.dataInicio = hojeStr;
         filtro.dataFim    = hojeStr;
@@ -654,7 +685,7 @@ async function loadClientPlanning() {
         const container = document.getElementById('clientPlanningList');
         if (container) {
             if (!plannings || plannings.length === 0) {
-                container.innerHTML = '<p class="empty-state">Aguardando planejamento do administrador...</p>';
+                container.innerHTML = '<p class="empty-state">Seu consultor ainda não publicou um planejamento. Toque em “Pedir planejamento” para solicitar.</p>';
             } else {
                 container.innerHTML = plannings.map(p => `
                     <div class="card" style="margin-bottom: 15px;">
@@ -696,13 +727,13 @@ async function atualizarAreaSolicitacaoPlanejamento(clientId) {
             const dataFormatada = new Date(data.created_at).toLocaleDateString('pt-BR');
             area.innerHTML = `
                 <div class="empty-state" style="padding:16px; font-style:normal; text-align:left; background:rgba(100,150,255,0.06); border-radius:10px; border:1px solid rgba(100,150,255,0.15); margin-bottom:15px;">
-                    📨 Você solicitou um planejamento em ${dataFormatada}. O administrador foi avisado e vai criar em breve.
+                    📨 Você solicitou um planejamento em ${dataFormatada}. Seu consultor foi avisado e vai montar em breve.
                 </div>
             `;
         } else {
             area.innerHTML = `
                 <button type="button" class="btn btn--secondary" onclick="abrirModalSolicitarPlanejamento()" style="margin-bottom:15px;">
-                    📩 Solicitar Planejamento
+                    📩 Pedir planejamento
                 </button>
             `;
         }
@@ -733,13 +764,13 @@ async function handleEnviarSolicitacaoPlanejamento() {
         if (error) throw error;
 
         UIModule.closeModal('modalSolicitarPlanejamento');
-        UIModule.showSuccess('Solicitação enviada! O administrador foi avisado.');
+        UIModule.showSuccess('Pedido enviado! Seu consultor foi avisado.');
         await loadClientPlanning();
     } catch (err) {
         console.error('❌ handleEnviarSolicitacaoPlanejamento:', err.message);
         UIModule.showError(err.message || 'Erro ao enviar a solicitação.');
     } finally {
-        if (btn) { btn.disabled = false; btn.textContent = 'Enviar Solicitação'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Enviar pedido'; }
     }
 }
 
@@ -1032,7 +1063,7 @@ async function atualizarSeletorDeMeta(idCategoriaHidden, idWrapper, idSelect) {
 
         const valorSelecionadoAntes = select.value;
 
-        select.innerHTML = '<option value="">Não vincular a nenhuma meta</option>' +
+        select.innerHTML = '<option value="">Nenhuma meta</option>' +
             metas.map(m => `<option value="${m.id}">${m.nome}</option>`).join('');
 
         if (valorSelecionadoAntes && metas.some(m => m.id === valorSelecionadoAntes)) {
@@ -1073,7 +1104,166 @@ async function showClientProfile() {
     UIModule.setText('profileClientName',     perfil?.nome_completo || 'Nome não informado');
     UIModule.setText('profileClientNickname', perfil?.apelido       || '—');
     UIModule.setText('profileClientEmail',    user?.email           || '');
+    UIModule.setText('profileClienteCiclo', typeof CicloModule !== 'undefined'
+        ? CicloModule.descrever(cicloClienteAtual) : '—');
+    if (typeof NotificacoesModule !== 'undefined') NotificacoesModule.atualizarBotaoAvisos();
+    if (typeof SomModule !== 'undefined') SomModule.atualizarBotoes();
     UIModule.openModal('clientProfileModal');
+}
+
+// ================================================
+// CICLO FINANCEIRO — "Quando você recebe?" (ciclo.js)
+// ================================================
+// O "mês" do cliente começa no dia em que ele recebe (ex.: dia 27 →
+// 27/09 a 26/10). Guardado em clientes.ciclo_tipo / ciclo_dia via a RPC
+// definir_ciclo_financeiro (MIGRACAO-notificacoes-ciclo.sql).
+// gamificacao.js lê a variável global cicloClienteAtual.
+
+let cicloClienteAtual = null;   // { tipo, dia } ou null (= mês normal)
+let cicloPerguntaAoFechar = null;
+
+async function carregarCicloCliente(userId) {
+    try {
+        const { data, error } = await supabaseClient
+            .from(CONFIG.TABLES.CLIENTES)
+            .select('ciclo_tipo, ciclo_dia, ciclo_definido_em')
+            .eq('id', userId)
+            .maybeSingle();
+        if (error) throw error;
+        cicloClienteAtual = (typeof CicloModule !== 'undefined' && data?.ciclo_definido_em)
+            ? CicloModule.deLinha(data) : null;
+        configurarFiltrosDeCiclo();
+        return { definido: !!data?.ciclo_definido_em, suportado: true };
+    } catch (err) {
+        // Coluna ainda não existe (migração não rodada): segue com mês normal, sem perguntar.
+        console.warn('⚠️ carregarCicloCliente:', err.message);
+        cicloClienteAtual = null;
+        return { definido: true, suportado: false };
+    }
+}
+
+function posLoginPerguntaETour(userId, ciclo) {
+    const tour = () => { if (typeof TourModule !== 'undefined') TourModule.mostrarSeNecessario(userId); };
+    let adiadoAte = 0;
+    try { adiadoAte = Number(localStorage.getItem(`mentorfin_ciclo_adiado_${userId}`) || 0); } catch (_) {}
+    if (ciclo && ciclo.suportado && !ciclo.definido && typeof CicloModule !== 'undefined' && Date.now() > adiadoAte) {
+        abrirPerguntaCiclo({ primeiraVez: true, aoFechar: tour, userId });
+    } else {
+        tour();
+    }
+}
+
+function cicloPersonalizado() {
+    return typeof CicloModule !== 'undefined' && cicloClienteAtual && !CicloModule.ehMesCalendario(cicloClienteAtual);
+}
+
+function intervaloDoCiclo(offset) {
+    if (typeof CicloModule === 'undefined') return null;
+    return CicloModule.cicloPorOffset(cicloClienteAtual || { tipo: 'dia_mes', dia: 1 }, new Date(), offset);
+}
+
+/** Cliente com ciclo próprio ganha "Este ciclo"/"Ciclo anterior" nos filtros; o painel abre no ciclo atual. */
+function configurarFiltrosDeCiclo() {
+    [['dashPeriodoRapido', true], ['histPeriodoRapido', false]].forEach(([id, selecionar]) => {
+        const sel = document.getElementById(id);
+        if (!sel) return;
+        sel.querySelectorAll('option[data-ciclo]').forEach(o => o.remove());
+        if (!cicloPersonalizado()) {
+            if (selecionar && !sel.value) sel.value = 'mes';
+            return;
+        }
+        const atual = intervaloDoCiclo(0), anterior = intervaloDoCiclo(-1);
+        const opt = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; o.dataset.ciclo = '1'; return o; };
+        const ref = sel.querySelector('option[value="todos"]');
+        const novas = [opt('ciclo_atual', `Este ciclo (${atual.rotulo})`), opt('ciclo_anterior', `Ciclo anterior (${anterior.rotulo})`)];
+        if (ref) ref.after(...novas); else sel.prepend(...novas);
+        if (selecionar) sel.value = 'ciclo_atual';
+        sel.closest('.history-filters')?.querySelector('.history-filters__custom-range')?.classList.add('hidden');
+    });
+}
+
+let cicloAdiarChave = null;   // "Responder depois" na 1ª vez: pergunta de novo em 3 dias
+
+function abrirPerguntaCiclo({ primeiraVez = false, aoFechar = null, userId = null } = {}) {
+    const modal = document.getElementById('modalCiclo');
+    if (!modal || typeof CicloModule === 'undefined') { if (aoFechar) aoFechar(); return; }
+    cicloPerguntaAoFechar = aoFechar;
+    cicloAdiarChave = primeiraVez && userId ? `mentorfin_ciclo_adiado_${userId}` : null;
+
+    const dias = document.getElementById('cicloDiaMes');
+    if (dias && !dias.options.length) {
+        for (let i = 1; i <= 31; i++) dias.add(new Option(`Dia ${i}`, i));
+        const uteis = document.getElementById('cicloDiaUtil');
+        for (let i = 1; i <= 10; i++) uteis.add(new Option(`${i}º dia útil`, i));
+        modal.querySelectorAll('input[name="cicloTipo"], #cicloDiaMes, #cicloDiaUtil')
+            .forEach(el => el.addEventListener('change', atualizarPreviaCiclo));
+        modal.querySelectorAll('#cicloDiaMes, #cicloDiaUtil').forEach(el => el.addEventListener('focus', () => {
+            const alvo = el.id === 'cicloDiaMes' ? 'dia_mes' : 'dia_util';
+            const r = modal.querySelector(`input[name="cicloTipo"][value="${alvo}"]`);
+            if (r && !r.checked) { r.checked = true; atualizarPreviaCiclo(); }
+        }));
+    }
+
+    const atual = cicloClienteAtual || { tipo: 'dia_mes', dia: 5 };
+    const radio = modal.querySelector(`input[name="cicloTipo"][value="${atual.tipo}"]`);
+    if (radio) radio.checked = true;
+    if (atual.tipo === 'dia_mes') document.getElementById('cicloDiaMes').value = atual.dia;
+    if (atual.tipo === 'dia_util') document.getElementById('cicloDiaUtil').value = atual.dia;
+
+    document.getElementById('btnCicloDepois').textContent = primeiraVez ? 'Responder depois' : 'Cancelar';
+    atualizarPreviaCiclo();
+    UIModule.openModal('modalCiclo');
+}
+
+function lerCicloDoModal() {
+    const tipo = document.querySelector('#modalCiclo input[name="cicloTipo"]:checked')?.value || 'dia_mes';
+    const dia = tipo === 'dia_mes' ? parseInt(document.getElementById('cicloDiaMes').value, 10)
+              : tipo === 'dia_util' ? parseInt(document.getElementById('cicloDiaUtil').value, 10) : 1;
+    return CicloModule.normalizar({ tipo, dia });
+}
+
+function atualizarPreviaCiclo() {
+    const el = document.getElementById('cicloPrevia');
+    if (!el) return;
+    const cfg = lerCicloDoModal();
+    const c = CicloModule.cicloPorOffset(cfg, new Date(), 0);
+    el.textContent = CicloModule.ehMesCalendario(cfg)
+        ? `Seu mês vai do dia 1 ao último dia (${c.rotulo}).`
+        : `Seu mês atual vai de ${c.rotulo}. Os resumos, a nota e as metas passam a seguir essas datas.`;
+}
+
+function fecharPerguntaCiclo({ salvou = false } = {}) {
+    if (!salvou && cicloAdiarChave) {
+        try { localStorage.setItem(cicloAdiarChave, String(Date.now() + 3 * 864e5)); } catch (_) {}
+    }
+    cicloAdiarChave = null;
+    UIModule.closeModal('modalCiclo');
+    const cb = cicloPerguntaAoFechar;
+    cicloPerguntaAoFechar = null;
+    if (typeof cb === 'function') cb();
+}
+
+async function salvarCicloCliente() {
+    const cfg = lerCicloDoModal();
+    const btn = document.getElementById('btnCicloSalvar');
+    if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
+    try {
+        const { error } = await supabaseClient.rpc('definir_ciclo_financeiro', { p_tipo: cfg.tipo, p_dia: cfg.dia });
+        if (error) throw error;
+        cicloClienteAtual = cfg;
+        configurarFiltrosDeCiclo();
+        UIModule.setText('profileClienteCiclo', CicloModule.descrever(cfg));
+        UIModule.showSuccess('📅 Pronto! Seu mês agora segue o dia em que você recebe.');
+        fecharPerguntaCiclo({ salvou: true });
+        await loadClientDashboard();
+    } catch (err) {
+        console.error('❌ salvarCicloCliente:', err.message);
+        UIModule.showError(/function|does not exist|schema cache/i.test(err.message || '')
+            ? 'Este recurso ainda não está ativo. Avise o seu consultor.'
+            : 'Não foi possível salvar. Tente de novo.');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Salvar'; }
+    }
 }
 
 // ================================================
@@ -1095,12 +1285,12 @@ async function waitForSupabase(maxAttempts = 20) {
 let categoriasEstado = 'idle'; // 'idle' | 'carregando' | 'ok' | 'vazio' | 'erro'
 
 const GRUPO_LABEL_SELECT = {
-    essencial:      '🟠 Essenciais',
-    estilo_de_vida: '🎯 Estilo de Vida',
-    investimento:   '💰 Investimentos',
-    divida:         '💳 Dívidas e Financiamentos',
-    transferencia:  '🔄 Transferências Internas',
-    renda:          '📈 Renda'
+    essencial:      '🏠 Contas obrigatórias (casa, mercado, saúde, transporte)',
+    estilo_de_vida: '🎯 Lazer, delivery e compras',
+    investimento:   '💰 Guardar dinheiro (reserva e investimentos)',
+    divida:         '💳 Parcelas e dívidas',
+    transferencia:  '🔄 Entre suas contas (não é gasto)',
+    renda:          '📈 Dinheiro que entrou'
 };
 
 function setCategorySelectState(state, categorias = []) {
@@ -1180,7 +1370,10 @@ function posicionarEReparentarPainel(trigger, panel) {
 
     const rect            = trigger.getBoundingClientRect();
     const margem           = 10;
-    const espacoAbaixo      = window.innerHeight - rect.bottom - margem;
+    // iOS 27 beta: visualViewport.height reflete a área visível real quando
+    // o teclado virtual está aberto — window.innerHeight não é confiável.
+    const alturaJanela     = window.visualViewport?.height ?? window.innerHeight;
+    const espacoAbaixo      = alturaJanela - rect.bottom - margem;
     const espacoAcima       = rect.top - margem;
     const alturaMaximaBase  = 280;
     const abreParaCima      = espacoAbaixo < 160 && espacoAcima > espacoAbaixo;
@@ -1193,7 +1386,7 @@ function posicionarEReparentarPainel(trigger, panel) {
 
     if (abreParaCima) {
         panel.style.top    = 'auto';
-        panel.style.bottom = `${window.innerHeight - rect.top + 6}px`;
+        panel.style.bottom = `${alturaJanela - rect.top + 6}px`;
     } else {
         panel.style.top    = `${rect.bottom + 6}px`;
         panel.style.bottom = 'auto';

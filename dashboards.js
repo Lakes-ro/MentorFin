@@ -18,8 +18,30 @@
  * pelo Balancete Ampliado (contabilidade.js), evitando refazer a
  * consulta ao banco pra cada uma dessas ações.
  *
+ * ATUALIZAÇÃO — CICLO FINANCEIRO DO CLIENTE: clientes que não recebem no dia 1
+ * (ex.: dia 27 → 27/05 a 26/06) ganham "Ciclo atual" / "Ciclo anterior" no
+ * filtro de período e o dashboard já abre no ciclo atual. Como Resumo, DRE,
+ * Balancete e Balancete Ampliado leem o mesmo recorte, todos seguem o ciclo.
+ *
  * ATUALIZAÇÃO — BUSCA: campo "Buscar cliente" acima da grade filtra
  * os cards por apelido, nome, e-mail, telefone ou CPF (ver admin.js).
+ *
+ * ATUALIZAÇÃO — LANÇAMENTOS PELO ADMIN: aba "📒 Lançamentos" e botões ✏️/🗑️
+ * no painel "O que tem em …" (lancamentos-gestao.js). Depois de salvar,
+ * recarregarDashboardAtual() busca tudo de novo mantendo período e filtros.
+ *
+ * ATUALIZAÇÃO — GRÁFICOS INTERATIVOS (filtro cruzado):
+ * - Clicar numa fatia da rosca (ou na legenda) filtra pelo GRUPO
+ *   (Essencial, Estilo de Vida, Investimentos, Dívidas): as barras passam a
+ *   mostrar só as categorias daquele grupo, a Análise Detalhada mostra os
+ *   números do grupo, o card de KPI correspondente fica em destaque e o
+ *   painel "🔎 O que tem em …" lista as categorias e os lançamentos.
+ * - Clicar numa barra filtra pela CATEGORIA: a rosca destaca o grupo dela,
+ *   a barra fica em destaque e o painel lista os lançamentos da categoria.
+ * - As barras usam a cor do grupo da categoria (mesma cor da rosca).
+ * - Clicar de novo no mesmo item, no ✕ da faixa "Filtrando" ou em
+ *   "Limpar" desfaz. Trocar o período mantém a seleção quando ainda há
+ *   dados para ela. KPIs gerais, régua e dicas continuam sobre o total.
  */
 
 let chartDonut = null;
@@ -38,6 +60,11 @@ let dashboardContextoAtual = {
 };
 
 let dashboardPeriodoAtual = { preset: 'todos', inicio: null, fim: null };
+
+// Filtro cruzado dos gráficos (clique na rosca / nas barras)
+let filtroGraficoDash = { grupo: null, categoria: null };
+// Números do período atual usados pelos gráficos interativos
+let baseGraficosDash = null;
 
 function initDashboards() {
   window.addEventListener('section:change', ({ detail }) => {
@@ -177,6 +204,10 @@ async function abrirDashboard(clienteId, nome) {
   document.getElementById('dre-container').innerHTML = '<p class="empty-state">Carregando...</p>';
   document.getElementById('balancete-container').innerHTML = '<p class="empty-state">Carregando...</p>';
 
+  // Novo cliente: nenhum filtro de gráfico ativo
+  filtroGraficoDash = { grupo: null, categoria: null };
+  baseGraficosDash = null;
+
   openModal('modal-dashboard');
 
   if (chartDonut) { chartDonut.destroy(); chartDonut = null; }
@@ -187,38 +218,70 @@ async function abrirDashboard(clienteId, nome) {
     if (el) el.innerHTML = '<p class="empty-state">Carregando...</p>';
   });
 
-  // Transações (com as colunas que a gamificação usa) + metas, em paralelo
-  const [{ data: transacoes, error }, { data: metas }] = await Promise.all([
+  if (typeof GestaoLancamentosAdmin !== 'undefined') GestaoLancamentosAdmin.reiniciar();
+
+  const ok = await carregarDadosDashboard(clienteId, nome);
+  if (!ok) return;
+
+  // Ao trocar de cliente o filtro volta para "Todos os lançamentos".
+  resetarFiltroPeriodoDashboard();
+  aplicarPeriodoDashboard();
+}
+
+/**
+ * Depois que o admin cria/edita/exclui um lançamento (lancamentos-gestao.js):
+ * busca tudo de novo e redesenha, mantendo período e filtro dos gráficos.
+ */
+async function recarregarDashboardAtual() {
+  const { clienteId, clienteNome } = dashboardContextoAtual;
+  if (!clienteId) return;
+  const ok = await carregarDadosDashboard(clienteId, clienteNome);
+  if (ok) aplicarPeriodoDashboard();
+}
+
+/** Busca transações/metas/gamificação do cliente e monta o contexto. */
+async function carregarDadosDashboard(clienteId, nome) {
+  // Transações (com as colunas que a gamificação usa) + metas + semanas
+  // marcadas e XP guardado do cliente (gamificação v2), em paralelo.
+  // As duas últimas falham em silêncio se a migração ainda não rodou.
+  const [{ data: transacoes, error }, { data: metas }, { data: semanasMarcadas }, { data: estadoGami }] = await Promise.all([
     supabaseClient
       .from('transacoes')
-      .select('valor, tipo, descricao, data_competencia, created_at, meta_id, origem, categorias(nome, grupo)')
+      .select('id, client_id, categoria_id, valor, tipo, descricao, data_competencia, created_at, meta_id, origem, categorias(nome, grupo)')
       .eq('client_id', clienteId)
       .order('data_competencia', { ascending: false }),
     supabaseClient
       .from('metas')
       .select('id, nome, valor_necessario, valor_economizado')
-      .eq('client_id', clienteId)
+      .eq('client_id', clienteId),
+    supabaseClient.from('gamificacao_semanas').select('semana').eq('client_id', clienteId),
+    supabaseClient.from('gamificacao_estado').select('xp_max').eq('client_id', clienteId).maybeSingle()
   ]);
 
-  if (error) { showToast('Erro ao carregar dados: ' + error.message, 'error'); return; }
+  if (error) { showToast('Erro ao carregar dados: ' + error.message, 'error'); return false; }
+
+  const cicloCliente = (typeof CicloModule !== 'undefined')
+    ? CicloModule.deLinha(allClientes.find(c => c.id === clienteId))
+    : { tipo: 'dia_mes', dia: 1 };
 
   dashboardContextoAtual = {
+    clienteId,
     transacoes:      transacoes || [],
     transacoesTodas: transacoes || [],
     metas:           metas || [],
+    ciclo:           cicloCliente,
+    gamificacao:     { checkins: semanasMarcadas || [], xpGuardado: estadoGami?.xp_max || 0, ciclo: cicloCliente },
     clienteNome:     nome,
     periodoLabel:    'Todos os lançamentos'
   };
 
   // Blocos que olham o histórico INTEIRO (não mudam com o filtro de período)
-  try { renderEngajamentoCliente(dashboardContextoAtual.transacoesTodas, dashboardContextoAtual.metas); }
+  try { renderEngajamentoCliente(dashboardContextoAtual.transacoesTodas, dashboardContextoAtual.metas, dashboardContextoAtual.gamificacao); }
   catch (e) { console.error('❌ renderEngajamentoCliente:', e); }
-  try { renderEvolucaoAdmin(dashboardContextoAtual.transacoesTodas); }
+  try { renderEvolucaoAdmin(dashboardContextoAtual.transacoesTodas, cicloCliente); }
   catch (e) { console.error('❌ renderEvolucaoAdmin:', e); }
 
-  // Ao trocar de cliente o filtro volta para "Todos os lançamentos".
-  resetarFiltroPeriodoDashboard();
-  aplicarPeriodoDashboard();
+  return true;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -261,6 +324,13 @@ function calcularIntervaloPeriodoDashboard(periodo) {
 
     case 'ano-atual':
       return { inicio: `${ano}-01-01`, fim: `${ano}-12-31`, label: `Ano de ${ano}` };
+
+    case 'ciclo-atual':
+    case 'ciclo-anterior': {
+      if (typeof CicloModule === 'undefined') return { inicio: null, fim: null, label: 'Todos os lançamentos' };
+      const c = CicloModule.cicloPorOffset(dashboardContextoAtual.ciclo, hoje, periodo.preset === 'ciclo-anterior' ? -1 : 0);
+      return { inicio: c.inicio, fim: c.fim, label: `Ciclo ${c.rotulo}` };
+    }
 
     case 'personalizado': {
       const inicio = periodo.inicio || null;
@@ -306,12 +376,47 @@ function aplicarPeriodoDashboard() {
 
   calcularEExibir(filtradas);
   renderizarDREEBalanceteNoModal(filtradas, dashboardContextoAtual.clienteNome, intervalo.label);
+  if (typeof GestaoLancamentosAdmin !== 'undefined') GestaoLancamentosAdmin.renderAba();
+}
+
+/**
+ * Opções "Ciclo do cliente" — só aparecem para clientes cujo ciclo não é
+ * o mês normal. Retorna true se o cliente tem ciclo personalizado.
+ */
+function configurarOpcoesCicloAdmin() {
+  const sel = document.getElementById('dashboard-periodo');
+  if (!sel) return false;
+  sel.querySelectorAll('option[data-ciclo]').forEach(o => o.remove());
+  if (typeof CicloModule === 'undefined') return false;
+
+  const cfg = dashboardContextoAtual.ciclo;
+  if (CicloModule.ehMesCalendario(cfg)) return false;
+
+  const hoje     = new Date();
+  const atual    = CicloModule.cicloPorOffset(cfg, hoje, 0);
+  const anterior = CicloModule.cicloPorOffset(cfg, hoje, -1);
+  const criar = (valor, texto) => {
+    const o = document.createElement('option');
+    o.value = valor; o.textContent = texto; o.dataset.ciclo = '1';
+    return o;
+  };
+  const a = criar('ciclo-atual',    `Ciclo atual do cliente (${atual.rotuloCurto})`);
+  const b = criar('ciclo-anterior', `Ciclo anterior (${anterior.rotuloCurto})`);
+  const ref = sel.querySelector('option[value="todos"]');
+  if (ref) ref.after(a, b); else sel.prepend(a, b);
+  return true;
 }
 
 function resetarFiltroPeriodoDashboard() {
   dashboardPeriodoAtual = { preset: 'todos', inicio: null, fim: null };
   const sel = document.getElementById('dashboard-periodo');
   if (sel) sel.value = 'todos';
+
+  // Cliente com ciclo próprio (ex.: dia 27): já abre no ciclo atual dele.
+  if (configurarOpcoesCicloAdmin() && sel) {
+    sel.value = 'ciclo-atual';
+    dashboardPeriodoAtual.preset = 'ciclo-atual';
+  }
   document.getElementById('dashboard-periodo-custom')?.classList.add('hidden');
   const ini = document.getElementById('dashboard-periodo-inicio');
   const fim = document.getElementById('dashboard-periodo-fim');
@@ -338,6 +443,21 @@ function initFiltroPeriodoDashboard() {
       aplicarPeriodoDashboard();
     });
   });
+}
+
+// Grupos da rosca. "Estilo de Vida" = toda despesa que não é essencial,
+// investimento nem dívida (mesma conta dos KPIs).
+const GRUPOS_DASH = {
+  essencial:    { label: 'Essencial',      kpi: 'kpi-sobrevivencia', ref: 'até 50% da renda' },
+  estilo:       { label: 'Estilo de Vida', kpi: 'kpi-estilo',        ref: 'até 30% da renda' },
+  investimento: { label: 'Investimentos',  kpi: 'kpi-investimentos', ref: '10% da renda ou mais' },
+  divida:       { label: 'Dívidas',        kpi: 'kpi-dividas',       ref: 'até 10% da renda' }
+};
+const ORDEM_GRUPOS_DASH = ['essencial', 'estilo', 'investimento', 'divida'];
+
+function grupoDashDaTransacao(t) {
+  const g = t.categorias?.grupo;
+  return (g === 'essencial' || g === 'investimento' || g === 'divida') ? g : 'estilo';
 }
 
 function calcularEExibir(transacoes) {
@@ -400,17 +520,32 @@ function calcularEExibir(transacoes) {
 
   render503020({ totalReceita, custoSobrevivencia, estiloDeVida, aportesInvestimento, custoDivida, saldo });
 
-  renderDonut(custoSobrevivencia, estiloDeVida, aportesInvestimento, custoDivida);
+  // Base dos gráficos interativos: cada despesa já com o grupo da rosca
+  const despesasComGrupo = despesas.map(t => ({
+    id:        t.id,
+    data:     (t.data_competencia || '').slice(0, 10),
+    descricao: t.descricao || '',
+    categoria: t.categorias?.nome || 'Sem Categoria',
+    grupo:     grupoDashDaTransacao(t),
+    valor:     Math.abs(parseFloat(t.valor) || 0)
+  }));
+  baseGraficosDash = {
+    despesas: despesasComGrupo,
+    totalReceita, totalDespesa,
+    porGrupo: { essencial: custoSobrevivencia, estilo: estiloDeVida, investimento: aportesInvestimento, divida: custoDivida },
+    totalTransacoes: semTransferencias.length,
+    saldo
+  };
 
-  const categoriaMap = {};
-  despesas.forEach(t => {
-    const cat = t.categorias?.nome || 'Sem Categoria';
-    categoriaMap[cat] = (categoriaMap[cat] || 0) + Math.abs(t.valor);
-  });
-  const topCats = Object.entries(categoriaMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
-  renderBarChart(topCats);
+  // Seleção que deixou de existir no novo período é desfeita
+  if (filtroGraficoDash.categoria && !despesasComGrupo.some(d => d.categoria === filtroGraficoDash.categoria)) {
+    filtroGraficoDash.categoria = null;
+  }
+  if (filtroGraficoDash.grupo && !(baseGraficosDash.porGrupo[filtroGraficoDash.grupo] > 0)) {
+    filtroGraficoDash = { grupo: null, categoria: null };
+  }
 
-  renderAnalise(totalReceita, totalDespesa, custoSobrevivencia, estiloDeVida, aportesInvestimento, custoDivida, semTransferencias.length);
+  renderGraficosInterativos();
 
   renderInsightsDashboard({
     totalReceita, totalDespesa, custoSobrevivencia, estiloDeVida,
@@ -424,19 +559,64 @@ function calcularEExibir(transacoes) {
 // (skill dataviz): ordem fixa essencial → estilo → investimento → dívida.
 const CORES_GRUPOS = { essencial: '#d9506e', estilo: '#a88a22', investimento: '#1f9d8a', divida: '#8b6cf0' };
 
-function renderDonut(essencial, estiloVida, investimento, divida = 0) {
+// ══════════════════════════════════════════════════════════════
+// GRÁFICOS INTERATIVOS — filtro cruzado rosca ↔ barras ↔ análise
+// ══════════════════════════════════════════════════════════════
+
+/** Cor com transparência (para "apagar" o que não está selecionado). */
+function corApagada(hex) { return `${hex}40`; }
+
+/** Grupo em foco: o escolhido na rosca ou o da categoria escolhida nas barras. */
+function grupoEmFocoDash() {
+  if (filtroGraficoDash.grupo) return filtroGraficoDash.grupo;
+  if (filtroGraficoDash.categoria && baseGraficosDash) {
+    return baseGraficosDash.despesas.find(d => d.categoria === filtroGraficoDash.categoria)?.grupo || null;
+  }
+  return null;
+}
+
+function selecionarGrupoDash(grupo) {
+  const mesmo = filtroGraficoDash.grupo === grupo && !filtroGraficoDash.categoria;
+  filtroGraficoDash = mesmo ? { grupo: null, categoria: null } : { grupo, categoria: null };
+  renderGraficosInterativos();
+}
+
+function selecionarCategoriaDash(categoria) {
+  if (filtroGraficoDash.categoria === categoria) {
+    // 2º clique na mesma barra: volta para o grupo (se havia) ou limpa
+    filtroGraficoDash.categoria = null;
+  } else {
+    filtroGraficoDash.categoria = categoria;
+  }
+  renderGraficosInterativos();
+}
+
+function limparFiltroGraficosDash() {
+  filtroGraficoDash = { grupo: null, categoria: null };
+  renderGraficosInterativos();
+}
+
+function renderGraficosInterativos() {
+  if (!baseGraficosDash) return;
+  renderDonut();
+  renderBarChart();
+  renderAnalise();
+  renderFaixaFiltroDash();
+  renderDetalheSelecaoDash();
+  destacarKpiDoGrupo();
+}
+
+function renderDonut() {
   const ctx = document.getElementById('chart-donut');
-  if (!ctx) return;
+  if (!ctx || !baseGraficosDash) return;
   // "Canvas is already in use": trocar o período redesenha os gráficos,
   // e o Chart.js recusa reutilizar um <canvas> com instância viva.
   if (chartDonut) { chartDonut.destroy(); chartDonut = null; }
 
-  const fatias = [
-    { label: 'Essencial',      valor: essencial,    cor: CORES_GRUPOS.essencial },
-    { label: 'Estilo de Vida', valor: estiloVida,   cor: CORES_GRUPOS.estilo },
-    { label: 'Investimentos',  valor: investimento, cor: CORES_GRUPOS.investimento },
-    { label: 'Dívidas',        valor: divida,       cor: CORES_GRUPOS.divida }
-  ].filter(f => f.valor > 0);
+  const foco = grupoEmFocoDash();
+  const fatias = ORDEM_GRUPOS_DASH
+    .map(chave => ({ chave, label: GRUPOS_DASH[chave].label, valor: baseGraficosDash.porGrupo[chave], cor: CORES_GRUPOS[chave] }))
+    .filter(f => f.valor > 0);
   const total = fatias.reduce((s, f) => s + f.valor, 0);
   if (!total) return;
   const pctTxt = (v) => `${((v / total) * 100).toFixed(0)}%`;
@@ -445,38 +625,90 @@ function renderDonut(essencial, estiloVida, investimento, divida = 0) {
     type: 'doughnut',
     data: {
       labels: fatias.map(f => `${f.label} · ${pctTxt(f.valor)}`),
-      datasets: [{ data: fatias.map(f => f.valor), backgroundColor: fatias.map(f => f.cor),
-        borderColor: '#0e1512', borderWidth: 2, hoverOffset: 6 }]
+      datasets: [{ data: fatias.map(f => f.valor),
+        backgroundColor: fatias.map(f => (!foco || f.chave === foco) ? f.cor : corApagada(f.cor)),
+        borderColor: '#0e1512', borderWidth: 2, hoverOffset: 6,
+        offset: fatias.map(f => (foco && f.chave === foco) ? 10 : 0) }]
     },
     options: {
       responsive: true, maintainAspectRatio: false, cutout: '65%',
+      onClick: (_evt, elementos) => {
+        if (!elementos.length) return;
+        selecionarGrupoDash(fatias[elementos[0].index].chave);
+      },
+      onHover: (evt, elementos) => {
+        const alvo = evt.native?.target;
+        if (alvo) alvo.style.cursor = elementos.length ? 'pointer' : 'default';
+      },
       plugins: {
-        legend: { position: 'bottom', labels: { color: '#9fb8ab', font: { size: 11 }, padding: 12, usePointStyle: true } },
-        tooltip: { callbacks: { label: c => ` ${fatias[c.dataIndex].label}: ${formatCurrency(c.parsed)} (${pctTxt(c.parsed)})` } }
+        legend: {
+          position: 'bottom',
+          labels: { color: '#9fb8ab', font: { size: 11 }, padding: 12, usePointStyle: true },
+          // Clicar na legenda também filtra (em vez de esconder a fatia)
+          onClick: (_evt, item) => selecionarGrupoDash(fatias[item.index].chave),
+          onHover: (evt) => { const alvo = evt.native?.target; if (alvo) alvo.style.cursor = 'pointer'; }
+        },
+        tooltip: { callbacks: {
+          label: c => ` ${fatias[c.dataIndex].label}: ${formatCurrency(c.parsed)} (${pctTxt(c.parsed)})`,
+          footer: () => 'Clique para ver o que tem aqui'
+        } }
       }
     }
   });
 }
 
-function renderBarChart(topCats) {
+function renderBarChart() {
   const ctx = document.getElementById('chart-bar');
-  if (!ctx) return;
+  if (!ctx || !baseGraficosDash) return;
   if (chartBar) { chartBar.destroy(); chartBar = null; }
+
+  const foco = grupoEmFocoDash();
+  const universo = foco ? baseGraficosDash.despesas.filter(d => d.grupo === foco) : baseGraficosDash.despesas;
+
+  // Soma por categoria (lembrando o grupo de cada uma para a cor)
+  const mapa = {};
+  universo.forEach(d => {
+    if (!mapa[d.categoria]) mapa[d.categoria] = { valor: 0, grupos: {} };
+    mapa[d.categoria].valor += d.valor;
+    mapa[d.categoria].grupos[d.grupo] = (mapa[d.categoria].grupos[d.grupo] || 0) + d.valor;
+  });
+  const limite = foco ? 12 : 8;
+  const cats = Object.entries(mapa)
+    .map(([nome, x]) => ({ nome, valor: x.valor, grupo: Object.entries(x.grupos).sort((a, b) => b[1] - a[1])[0][0] }))
+    .sort((a, b) => b.valor - a.valor)
+    .slice(0, limite);
+
+  const titulo = ctx.closest('.chart-card')?.querySelector('h4');
+  if (titulo) titulo.textContent = foco ? `📊 Categorias em ${GRUPOS_DASH[foco].label}` : '📊 Top Categorias de Despesa';
+
+  const sel = filtroGraficoDash.categoria;
+  const totalUniverso = universo.reduce((s, d) => s + d.valor, 0) || 1;
+
   chartBar = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: topCats.map(([cat]) => cat),
-      datasets: [{ label: 'Valor (R$)', data: topCats.map(([,val]) => val),
-        backgroundColor: '#5b7cf0', borderRadius: 4, borderSkipped: false, maxBarThickness: 18 }]
+      labels: cats.map(c => c.nome),
+      datasets: [{ label: 'Valor (R$)', data: cats.map(c => c.valor),
+        backgroundColor: cats.map(c => (!sel || c.nome === sel) ? CORES_GRUPOS[c.grupo] : corApagada(CORES_GRUPOS[c.grupo])),
+        borderRadius: 4, borderSkipped: false, maxBarThickness: 18 }]
     },
     options: {
       indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      onClick: (_evt, elementos) => {
+        if (!elementos.length) return;
+        selecionarCategoriaDash(cats[elementos[0].index].nome);
+      },
+      onHover: (evt, elementos) => {
+        const alvo = evt.native?.target;
+        if (alvo) alvo.style.cursor = elementos.length ? 'pointer' : 'default';
+      },
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: ctx => {
-          const total = ctx.dataset.data.reduce((a, b) => a + b, 0) || 1;
-          return ` ${formatCurrency(ctx.parsed.x)} · ${((ctx.parsed.x / total) * 100).toFixed(0)}% do top 8`;
-        } } }
+        tooltip: { callbacks: {
+          label: c => ` ${formatCurrency(c.parsed.x)} · ${((c.parsed.x / totalUniverso) * 100).toFixed(0)}% ${foco ? 'do grupo' : 'das despesas'}`,
+          afterLabel: c => ` Grupo: ${GRUPOS_DASH[cats[c.dataIndex].grupo].label}`,
+          footer: () => 'Clique para ver os lançamentos'
+        } }
       },
       scales: {
         x: { ticks: { color: '#6b9e84', font: { size: 10 }, callback: v => v >= 1000 ? `${(v / 1000).toLocaleString('pt-BR')} mil` : v.toLocaleString('pt-BR') }, grid: { color: 'rgba(255,255,255,0.04)' } },
@@ -486,30 +718,187 @@ function renderBarChart(topCats) {
   });
 }
 
-function renderAnalise(totalReceita, totalDespesa, custoSobrevivencia, estiloDeVida, aportesInvestimento, custoDivida, totalTransacoes) {
+function renderAnalise() {
   const grid = document.getElementById('analise-grid');
-  if (!grid) return;
-  const saldo        = totalReceita - totalDespesa;
-  const taxaEconomia = totalReceita > 0 ? ((saldo / totalReceita) * 100).toFixed(1) : 0;
+  if (!grid || !baseGraficosDash) return;
+  const b = baseGraficosDash;
 
-  const items = [
-    { label: 'Renda Total',       value: formatCurrency(totalReceita),        color: '#00f5a0' },
-    { label: 'Custo Essencial',   value: formatCurrency(custoSobrevivencia),  color: '#f5d623' },
-    { label: 'Estilo de Vida',    value: formatCurrency(estiloDeVida),        color: '#ff6384' },
-    { label: 'Investimentos',     value: formatCurrency(aportesInvestimento), color: '#00f5a0' },
-    { label: 'Dívidas',           value: formatCurrency(custoDivida),         color: '#ff9f40' },
-    { label: 'Despesa Total',     value: formatCurrency(totalDespesa),        color: '#ff4d6d' },
-    { label: 'Saldo',             value: formatCurrency(saldo),               color: saldo >= 0 ? '#00f5a0' : '#ff4d6d' },
-    { label: 'Taxa de Poupança',  value: taxaEconomia + '%',                  color: '#7b96ff' },
-    { label: 'Transações',        value: totalTransacoes,                     color: '#6b9e84' },
-  ];
+  const titulo = grid.closest('.analise-section')?.querySelector('h4');
+  const foco = grupoEmFocoDash();
+  const cat  = filtroGraficoDash.categoria;
+
+  let items;
+  if (!foco) {
+    const custoSobrevivencia = b.porGrupo.essencial, estiloDeVida = b.porGrupo.estilo;
+    const aportesInvestimento = b.porGrupo.investimento, custoDivida = b.porGrupo.divida;
+    const saldo        = b.totalReceita - b.totalDespesa;
+    const taxaEconomia = b.totalReceita > 0 ? ((saldo / b.totalReceita) * 100).toFixed(1) : 0;
+    if (titulo) titulo.textContent = '📊 ANÁLISE DETALHADA';
+    items = [
+      { label: 'Renda Total',       value: formatCurrency(b.totalReceita),      color: '#00f5a0' },
+      { label: 'Custo Essencial',   value: formatCurrency(custoSobrevivencia),  color: '#f5d623', grupo: 'essencial' },
+      { label: 'Estilo de Vida',    value: formatCurrency(estiloDeVida),        color: '#ff6384', grupo: 'estilo' },
+      { label: 'Investimentos',     value: formatCurrency(aportesInvestimento), color: '#00f5a0', grupo: 'investimento' },
+      { label: 'Dívidas',           value: formatCurrency(custoDivida),         color: '#ff9f40', grupo: 'divida' },
+      { label: 'Despesa Total',     value: formatCurrency(b.totalDespesa),      color: '#ff4d6d' },
+      { label: 'Saldo',             value: formatCurrency(saldo),               color: saldo >= 0 ? '#00f5a0' : '#ff4d6d' },
+      { label: 'Taxa de Poupança',  value: taxaEconomia + '%',                  color: '#7b96ff' },
+      { label: 'Transações',        value: b.totalTransacoes,                   color: '#6b9e84' },
+    ];
+  } else {
+    const lista = b.despesas.filter(d => cat ? d.categoria === cat : d.grupo === foco);
+    const total = lista.reduce((s, d) => s + d.valor, 0);
+    const maior = lista.reduce((m, d) => (!m || d.valor > m.valor) ? d : m, null);
+    const nomeSel = cat || GRUPOS_DASH[foco].label;
+    const cor = CORES_GRUPOS[foco];
+    const pctDesp  = b.totalDespesa > 0 ? (total / b.totalDespesa) * 100 : 0;
+    const pctRenda = b.totalReceita > 0 ? (total / b.totalReceita) * 100 : null;
+    const nCats = new Set(lista.map(d => d.categoria)).size;
+    if (titulo) titulo.textContent = `📊 ANÁLISE DETALHADA — ${nomeSel.toUpperCase()}`;
+    items = [
+      { label: `Total em ${nomeSel}`,  value: formatCurrency(total),                       color: cor },
+      { label: '% das despesas',       value: `${pctDesp.toFixed(1)}%`,                    color: '#7b96ff' },
+      { label: '% da renda',           value: pctRenda === null ? '—' : `${pctRenda.toFixed(1)}%`, color: '#7b96ff' },
+      { label: 'Lançamentos',          value: lista.length,                                color: '#6b9e84' },
+      { label: 'Média por lançamento', value: formatCurrency(lista.length ? total / lista.length : 0), color: '#9fb8ab' },
+      { label: 'Maior lançamento',     value: maior ? formatCurrency(maior.valor) : '—',   color: '#ff9f40' },
+      cat
+        ? { label: 'Grupo',            value: GRUPOS_DASH[foco].label,                     color: cor }
+        : { label: 'Categorias',       value: nCats,                                       color: '#6b9e84' },
+      { label: 'Referência do grupo',  value: GRUPOS_DASH[foco].ref,                       color: '#9fb8ab' }
+    ];
+  }
 
   grid.innerHTML = items.map(item => `
-    <div class="analise-item">
-      <span class="analise-item-label">${item.label}</span>
-      <span class="analise-item-value" style="color:${item.color}">${item.value}</span>
+    <div class="analise-item ${item.grupo ? 'analise-item--clicavel' : ''}" ${item.grupo ? `data-grupo="${item.grupo}" title="Clique para ver o que tem aqui"` : ''}>
+      <span class="analise-item-label">${escaparHtml(String(item.label))}</span>
+      <span class="analise-item-value" style="color:${item.color}">${escaparHtml(String(item.value))}</span>
     </div>
   `).join('');
+
+  // Cards de grupo da análise também filtram (mesmo efeito da rosca)
+  grid.querySelectorAll('.analise-item--clicavel').forEach(el => {
+    el.addEventListener('click', () => selecionarGrupoDash(el.dataset.grupo));
+  });
+}
+
+/** Faixa "Filtrando: Dívidas › Cartão (Parcelamento) ✕". */
+function renderFaixaFiltroDash() {
+  const el = document.getElementById('dash-filtro-cruzado');
+  if (!el) return;
+  const foco = grupoEmFocoDash();
+  if (!foco) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+
+  const cat = filtroGraficoDash.categoria;
+  el.classList.remove('hidden');
+  el.innerHTML = `
+    <span class="dash-filtro__rotulo">Filtrando:</span>
+    <button type="button" class="dash-filtro__chip" data-acao="grupo" style="--cor:${CORES_GRUPOS[foco]}">
+      <i></i>${escaparHtml(GRUPOS_DASH[foco].label)}
+    </button>
+    ${cat ? `<span class="dash-filtro__seta">›</span>
+      <span class="dash-filtro__chip dash-filtro__chip--cat" style="--cor:${CORES_GRUPOS[foco]}">${escaparHtml(cat)}</span>` : ''}
+    <button type="button" class="dash-filtro__limpar" data-acao="limpar" title="Mostrar tudo de novo">✕ Limpar</button>`;
+
+  el.querySelector('[data-acao="limpar"]').addEventListener('click', limparFiltroGraficosDash);
+  // Com categoria escolhida, tocar no grupo volta um nível (grupo inteiro)
+  el.querySelector('[data-acao="grupo"]').addEventListener('click', () => {
+    filtroGraficoDash = { grupo: foco, categoria: null };
+    renderGraficosInterativos();
+  });
+}
+
+/** Painel "🔎 O que tem em …": categorias do grupo + lançamentos. */
+function renderDetalheSelecaoDash() {
+  const el = document.getElementById('dash-detalhe');
+  if (!el) return;
+  const foco = grupoEmFocoDash();
+  if (!foco || !baseGraficosDash) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+
+  const b = baseGraficosDash;
+  const cat = filtroGraficoDash.categoria;
+  const lista = b.despesas.filter(d => cat ? d.categoria === cat : d.grupo === foco);
+  const total = lista.reduce((s, d) => s + d.valor, 0);
+  const pctRenda = b.totalReceita > 0 ? ` · ${((total / b.totalReceita) * 100).toFixed(0)}% da renda` : '';
+  const pctDesp  = b.totalDespesa > 0 ? `${((total / b.totalDespesa) * 100).toFixed(0)}% das despesas` : '';
+  const cor = CORES_GRUPOS[foco];
+  const fmtData = (iso) => iso ? iso.split('-').reverse().slice(0, 2).join('/') : '—';
+
+  // Categorias dentro do grupo (só quando o filtro é o grupo inteiro)
+  let blocoCategorias = '';
+  if (!cat) {
+    const porCat = {};
+    lista.forEach(d => { porCat[d.categoria] = (porCat[d.categoria] || 0) + d.valor; });
+    const ordenadas = Object.entries(porCat).sort((a, b2) => b2[1] - a[1]);
+    blocoCategorias = `
+      <div class="dash-detalhe__cats">
+        ${ordenadas.map(([nome, v]) => `
+          <button type="button" class="dash-detalhe__cat" data-cat="${escaparHtml(nome)}" title="Ver só ${escaparHtml(nome)}">
+            <span class="dash-detalhe__cat-barra" style="width:${total ? (v / total) * 100 : 0}%; background:${cor}"></span>
+            <span class="dash-detalhe__cat-nome">${escaparHtml(nome)}</span>
+            <span class="dash-detalhe__cat-valor">${formatCurrency(v)} · ${total ? ((v / total) * 100).toFixed(0) : 0}%</span>
+          </button>`).join('')}
+      </div>`;
+  }
+
+  const LIMITE = 12;
+  const lancOrdenados = [...lista].sort((a, b2) => b2.valor - a.valor);
+  const mostrarTodos = el.dataset.todos === '1';
+  const visiveis = mostrarTodos ? lancOrdenados : lancOrdenados.slice(0, LIMITE);
+
+  el.classList.remove('hidden');
+  el.style.setProperty('--cor', cor);
+  el.innerHTML = `
+    <div class="dash-detalhe__topo">
+      <div>
+        <h4>🔎 O que tem em ${escaparHtml(cat || GRUPOS_DASH[foco].label)}</h4>
+        <p class="dash-detalhe__sub">${formatCurrency(total)} · ${pctDesp}${pctRenda} · ${lista.length} lançamento(s)</p>
+      </div>
+      <button type="button" class="dash-filtro__limpar" data-acao="fechar">✕ Fechar</button>
+    </div>
+    ${blocoCategorias}
+    <div class="dash-detalhe__lista">
+      <div class="dash-detalhe__linha dash-detalhe__linha--cab">
+        <span>Data</span><span>Descrição</span><span>Categoria</span><span>Valor</span><span></span>
+      </div>
+      ${visiveis.map(d => `
+        <div class="dash-detalhe__linha" data-id="${d.id || ''}">
+          <span>${fmtData(d.data)}</span>
+          <span title="${escaparHtml(d.descricao)}">${escaparHtml(d.descricao || '—')}</span>
+          <span>${escaparHtml(d.categoria)}</span>
+          <span class="dash-detalhe__valor">${formatCurrency(d.valor)}</span>
+          <span class="lanc-gestao__acoes">${d.id ? `
+            <button type="button" class="lanc-gestao__btn" data-acao="editar" title="Editar lançamento">✏️</button>
+            <button type="button" class="lanc-gestao__btn" data-acao="excluir" title="Excluir lançamento">🗑️</button>` : ''}
+          </span>
+        </div>`).join('') || '<p class="empty-state">Nenhum lançamento.</p>'}
+    </div>
+    ${lancOrdenados.length > LIMITE ? `
+      <button type="button" class="dash-detalhe__mais" data-acao="todos">
+        ${mostrarTodos ? 'Mostrar só os maiores' : `Ver todos os ${lancOrdenados.length} lançamentos`}
+      </button>` : ''}`;
+
+  el.querySelector('[data-acao="fechar"]').addEventListener('click', limparFiltroGraficosDash);
+  el.querySelector('[data-acao="todos"]')?.addEventListener('click', () => {
+    el.dataset.todos = mostrarTodos ? '0' : '1';
+    renderDetalheSelecaoDash();
+  });
+  el.querySelectorAll('.dash-detalhe__cat').forEach(btn => {
+    btn.addEventListener('click', () => {
+      filtroGraficoDash = { grupo: foco, categoria: btn.dataset.cat };
+      el.dataset.todos = '0';
+      renderGraficosInterativos();
+    });
+  });
+}
+
+/** Card de KPI do grupo em foco ganha destaque; os outros ficam normais. */
+function destacarKpiDoGrupo() {
+  const foco = grupoEmFocoDash();
+  ORDEM_GRUPOS_DASH.forEach(g => {
+    const card = document.getElementById(GRUPOS_DASH[g].kpi)?.closest('.kpi-card');
+    if (card) card.classList.toggle('kpi-card--foco', g === foco);
+  });
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -584,15 +973,18 @@ function render503020(m) {
  * lançamento, saúde do mês, missões e conquistas — mesmos números que o
  * cliente vê no painel dele (GamificacaoModule.calcular).
  */
-function renderEngajamentoCliente(transacoes, metas) {
+function renderEngajamentoCliente(transacoes, metas, gamificacao = {}) {
   const el = document.getElementById('dash-engajamento');
   if (!el) return;
   if (typeof GamificacaoModule === 'undefined') { el.innerHTML = ''; return; }
 
-  const e = GamificacaoModule.calcular(transacoes, metas);
+  const e = GamificacaoModule.calcular(transacoes, metas, new Date(), gamificacao);
 
-  // Último lançamento registrado (created_at) → "há N dias"
-  const datas = transacoes.map(t => GamificacaoModule._interno.parseCriadoEm(t.created_at)).filter(Boolean);
+  // Último lançamento FEITO PELO CLIENTE (created_at) → "há N dias".
+  // O que o admin lança/importa pelo painel não conta como atividade dele.
+  const datas = transacoes
+    .filter(t => t.origem !== 'lancamento_admin')
+    .map(t => GamificacaoModule._interno.parseCriadoEm(t.created_at)).filter(Boolean);
   const ultimo = datas.length ? new Date(Math.max(...datas)) : null;
   const diasSem = ultimo ? Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(ultimo).setHours(0, 0, 0, 0)) / 864e5) : null;
   const ultimoTxt = diasSem === null ? 'nunca' : diasSem === 0 ? 'hoje' : diasSem === 1 ? 'ontem' : `há ${diasSem} dias`;
@@ -609,19 +1001,22 @@ function renderEngajamentoCliente(transacoes, metas) {
       <span class="engaj-item__sub">${e.nivel.xp.toLocaleString('pt-BR')} XP</span>
     </div>
     <div class="engaj-item">
-      <span class="engaj-item__rotulo">Sequência</span>
-      <strong>🔥 ${e.sequencia} ${e.sequencia === 1 ? 'dia' : 'dias'}</strong>
-      <span class="engaj-item__sub">recorde ${e.melhorSequencia}</span>
+      <span class="engaj-item__rotulo">Semanas em dia</span>
+      <strong>🔥 ${e.sequencia} ${e.sequencia === 1 ? 'semana' : 'semanas'}</strong>
+      <span class="engaj-item__sub">${e.semanaAtualEmDia ? 'esta semana em dia' : 'esta semana pendente'} · recorde ${e.melhorSequencia}</span>
     </div>
     <div class="engaj-item ${inativo ? 'engaj-item--alerta' : ''}">
       <span class="engaj-item__rotulo">Último lançamento</span>
       <strong>${ultimoTxt}</strong>
-      <span class="engaj-item__sub">${inativo ? 'vale mandar uma mensagem' : `${e.totalLancamentos} no total`}</span>
+      <span class="engaj-item__sub">${inativo ? 'vale mandar uma mensagem' : `${e.totalLancamentos} feitos pelo cliente`}</span>
     </div>
     <div class="engaj-item">
-      <span class="engaj-item__rotulo">Saúde do mês</span>
+      <span class="engaj-item__rotulo">${s ? `Saúde de ${escaparHtml(s.mes)}${s.ehPrevia ? ' (prévia)' : ''}` : 'Saúde financeira'}</span>
       <strong class="${s ? 'engaj-saude--' + s.classe : ''}">${s ? `${s.nota} · ${s.label}` : 'sem receita'}</strong>
-      <span class="engaj-item__sub">${s && s.delta !== null ? (s.delta === 0 ? 'igual ao mês passado' : `${s.delta > 0 ? '▲' : '▼'} ${Math.abs(s.delta)} vs. mês passado`) : 'mês corrente'}</span>
+      <span class="engaj-item__sub">${[
+        s && s.delta !== null ? (s.delta === 0 ? `igual a ${escaparHtml(s.mesAnterior)}` : `${s.delta > 0 ? '▲' : '▼'} ${Math.abs(s.delta)} vs. ${escaparHtml(s.mesAnterior)}`) : '',
+        s?.previa ? `prévia de ${escaparHtml(s.previa.mes)}: ${s.previa.nota}` : ''
+      ].filter(Boolean).join(' · ') || (s?.ehPrevia ? 'mês ainda aberto' : '')}</span>
     </div>
     <div class="engaj-item">
       <span class="engaj-item__rotulo">Semana / conquistas</span>
@@ -631,23 +1026,37 @@ function renderEngajamentoCliente(transacoes, metas) {
   `;
 }
 
-/** Receitas × despesas dos últimos 6 meses (histórico inteiro, sem transferências). */
-function renderEvolucaoAdmin(transacoes) {
+/**
+ * Receitas × despesas dos últimos 6 períodos (histórico inteiro, sem
+ * transferências). Período = mês-calendário, ou ciclo do cliente quando
+ * ele tem ciclo personalizado (ex.: 27/05 a 26/06).
+ */
+function renderEvolucaoAdmin(transacoes, ciclo) {
   const ctx = document.getElementById('chart-evolucao');
   if (!ctx) return;
   if (chartEvolucao) { chartEvolucao.destroy(); chartEvolucao = null; }
 
-  const hoje = new Date();
-  const meses = [];
+  const hoje   = new Date();
+  const custom = typeof CicloModule !== 'undefined' && ciclo && !CicloModule.ehMesCalendario(ciclo);
+  const meses  = [];
   for (let i = 5; i >= 0; i--) {
-    const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
-    meses.push({ chave: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-                 rotulo: d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''), rec: 0, desp: 0 });
+    if (custom) {
+      const c = CicloModule.cicloPorOffset(ciclo, hoje, -i);
+      meses.push({ chave: c.inicio, inicio: c.inicio, fim: c.fim,
+                   rotulo: CicloModule.formatarBR(c.inicioDate), rec: 0, desp: 0 });
+    } else {
+      const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
+      meses.push({ chave: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+                   rotulo: d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''), rec: 0, desp: 0 });
+    }
   }
   const porChave = Object.fromEntries(meses.map(m => [m.chave, m]));
+  const localizarPeriodo = (dia) => custom
+    ? meses.find(p => dia >= p.inicio && dia <= p.fim)
+    : porChave[dia.slice(0, 7)];
   transacoes.forEach(t => {
     if (t.categorias?.grupo === 'transferencia' || !t.data_competencia) return;
-    const m = porChave[t.data_competencia.slice(0, 7)];
+    const m = localizarPeriodo(t.data_competencia.slice(0, 10));
     if (!m) return;
     const v = Math.abs(parseFloat(t.valor) || 0);
     if (t.tipo === 'receita') m.rec += v; else m.desp += v;
@@ -829,4 +1238,4 @@ function initModalDashboardTabs() {
   });
 }
 
-console.log('✅ dashboards.js carregado (Resumo + Insights + DRE + Balancete + filtro de período + busca)');
+console.log('✅ dashboards.js carregado (Resumo interativo + Insights + DRE + Balancete + filtro de período + busca)');

@@ -1668,12 +1668,12 @@ input::placeholder {
     left: 0;
     top: auto;
     width: 100%;
-    height: var(--navbar-h);
+    height: calc(var(--navbar-h) + env(safe-area-inset-bottom));
     min-width: unset;
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
-    padding: 0 10px;
+    padding: 0 10px env(safe-area-inset-bottom);
     border-right: none;
     border-top: 1px solid rgba(100, 200, 255, 0.12);
     border-radius: 16px 16px 0 0;
@@ -1761,7 +1761,7 @@ input::placeholder {
   .main-content {
     margin-left: 0;
     width: 100%;
-    padding: 16px 14px calc(var(--navbar-h) + 16px);
+    padding: 16px 14px calc(var(--navbar-h) + env(safe-area-inset-bottom) + 16px);
   }
 
   /* ── Ajustes de componentes pós-login ────────────────────── */
@@ -1932,6 +1932,20 @@ input::placeholder {
 .btn-ver-senha:focus-visible { opacity: 1; }
 
 /* ══════════════════════════════════════════════════════════════
+   PERFIL — avisos e som (som.js / notifications.js)
+   ══════════════════════════════════════════════════════════════ */
+.perfil-avisos {
+  margin-top: 16px; padding: 16px;
+  background: rgba(100, 150, 255, 0.06);
+  border: 1px solid var(--border); border-radius: 8px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.perfil-avisos__titulo { color: #fff; font-weight: 700; font-size: 14px; }
+.perfil-avisos__btn { width: 100%; text-align: left; }
+.perfil-avisos__btn:disabled { opacity: 0.75; cursor: default; }
+.perfil-avisos__dica { color: var(--text-muted); font-size: 12px; line-height: 1.45; }
+
+/* ══════════════════════════════════════════════════════════════
    GAMIFICAÇÃO — nível, sequência, saúde, missões, cofrinhos,
    evolução e conquistas (ver gamificacao.js)
    ══════════════════════════════════════════════════════════════ */
@@ -2064,6 +2078,27 @@ input::placeholder {
   gap: 12px; margin-bottom: 14px; flex-wrap: wrap;
 }
 .gami-secao-topo h3 { margin: 0; }
+.gami-secao-topo__dir { display: flex; align-items: center; gap: 10px; }
+
+/* ══════════════════════════════════════════════════════════════
+   TOUR DO PRIMEIRO ACESSO (tour.js)
+   ══════════════════════════════════════════════════════════════ */
+.modal__content.tour { max-width: 440px; }
+.tour__corpo { text-align: center; padding: 30px 26px 24px; }
+.tour__icone { font-size: 46px; line-height: 1; margin-bottom: 12px; }
+.tour__titulo { color: #fff; font-size: 21px; margin-bottom: 10px; }
+.tour__texto { color: var(--text-primary); font-size: 15px; line-height: 1.55; margin-bottom: 12px; }
+.tour__dica {
+  color: var(--text-mid); font-size: 13px; line-height: 1.5;
+  background: rgba(100, 150, 255, 0.07); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 12px;
+}
+.tour__pontos { display: flex; justify-content: center; gap: 7px; margin: 18px 0; }
+.tour__ponto { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, 0.15); transition: background var(--transition), width var(--transition); }
+.tour__ponto--ativo { width: 22px; border-radius: 999px; background: var(--accent); }
+.tour__acoes { display: flex; gap: 10px; justify-content: center; }
+.tour__acoes .btn { width: auto; min-width: 120px; padding: 11px 20px; font-size: 15px; }
+.tour__acoes .btn--primary:hover { transform: none; }
 .gami-contador {
   font-size: 12px; font-weight: 700; color: var(--text-mid);
   background: rgba(255, 255, 255, 0.05);
@@ -2102,6 +2137,23 @@ input::placeholder {
   border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: 700;
   cursor: pointer; font-family: inherit;
 }
+.gami-missao__acao--sec {
+  background: rgba(100, 150, 255, 0.12); color: var(--accent);
+  border: 1px solid rgba(100, 150, 255, 0.35); white-space: nowrap;
+}
+.gami-missao--bloqueada { opacity: 0.55; }
+
+/* Semanas em dia: botão "Nada a registrar" e link da semana passada */
+.gami-checkin {
+  margin-top: 10px; width: 100%;
+  background: rgba(52, 211, 153, 0.1); color: var(--gami-bom);
+  border: 1px solid rgba(52, 211, 153, 0.4); border-radius: 8px;
+  padding: 8px 10px; font-size: 12.5px; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+  transition: background var(--transition);
+}
+.gami-checkin:hover { background: rgba(52, 211, 153, 0.18); }
+.gami-link--pequeno { display: block; margin-top: 8px; font-size: 11.5px; text-align: left; padding: 0; }
 .gami-missao--feita { background: rgba(52, 211, 153, 0.08); border-color: rgba(52, 211, 153, 0.3); }
 .gami-missao--feita .gami-missao__titulo { color: var(--text-mid); text-decoration: line-through; }
 .gami-missao--feita .gami-barra__preenchimento { background: var(--gami-bom); }
@@ -2337,3 +2389,132 @@ input::placeholder {
 .login-demo__texto strong { color: #fff; font-size: 14.5px; }
 .login-demo__texto small { color: var(--text-mid); font-size: 12px; line-height: 1.35; }
 .login-demo__seta { color: var(--gami-bom); font-size: 20px; font-weight: 800; }
+
+/* ══════════════════════════════════════════════════════════════
+   IMPORTAÇÃO — layout sem rolagem horizontal + busca de categoria
+   (importacao-extrato.js: cada lançamento ocupa 2 linhas — dados em
+   cima, categoria e origem embaixo; categoria é um campo de busca)
+   ══════════════════════════════════════════════════════════════ */
+.import-review__table-wrapper { overflow-x: hidden; }
+.import-review__table { min-width: 0; display: block; }
+.import-review__table thead { display: none; }
+.import-review__table tbody { display: block; }
+
+.import-review__table tbody tr {
+  display: grid;
+  grid-template-columns: 26px 140px minmax(0, 1fr) 115px 115px;
+  grid-template-areas:
+    "check data desc  valor tipo"
+    ".     cat  cat   cat   origem";
+  gap: 8px 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(100, 150, 255, 0.1);
+  border-left: 3px solid transparent;
+}
+.import-review__table tbody tr:last-child { border-bottom: none; }
+.import-review__table tbody td.imp-c { display: block; padding: 0; border: none; white-space: normal; min-width: 0; }
+.imp-c-check  { grid-area: check; }
+.imp-c-data   { grid-area: data; }
+.imp-c-desc   { grid-area: desc; }
+.imp-c-valor  { grid-area: valor; }
+.imp-c-tipo   { grid-area: tipo; }
+.imp-c-cat    { grid-area: cat; }
+.imp-c-origem { grid-area: origem; text-align: right; line-height: 1.9; }
+
+.import-review__table .imp-c input[type="text"],
+.import-review__table .imp-c input[type="number"],
+.import-review__table .imp-c input[type="date"],
+.import-review__table .imp-c select { width: 100%; min-width: 0; }
+
+.import-review__table tbody tr.import-row--sem-categoria { border-left-color: #fbbf24; background: rgba(251, 191, 36, 0.04); }
+.import-review__table tbody tr.import-row--duplicada { opacity: 0.55; }
+.import-review__table tbody tr.import-row--impedida {
+  background: rgba(255, 77, 109, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 77, 109, 0.5);
+}
+.import-row--impedida > td.imp-c { background: transparent !important; box-shadow: none; }
+
+/* Campo de busca da categoria */
+.cat-combo { position: relative; }
+.cat-combo__input { padding-right: 34px !important; }
+.cat-combo__limpar {
+  position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
+  width: 24px; height: 24px; border: none; border-radius: 6px;
+  background: transparent; color: var(--text-muted); cursor: pointer; font-size: 12px;
+}
+.cat-combo__limpar:hover { background: rgba(255, 255, 255, 0.08); color: var(--text-primary); }
+.cat-combo__limpar:disabled { visibility: hidden; }
+
+/* Painel de sugestões — fica no <body>, acima de modais (z-index alto) */
+.cat-panel {
+  position: fixed; z-index: 2147482000;
+  overflow-y: auto; overscroll-behavior: contain;
+  background: #14152a; border: 1px solid rgba(100, 150, 255, 0.35);
+  border-radius: var(--radius); box-shadow: 0 14px 36px rgba(0, 0, 0, 0.6);
+  padding: 4px 0;
+}
+.cat-panel.hidden { display: none; }
+.cat-panel__grupo {
+  padding: 9px 12px 4px; font-size: 10.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);
+}
+.cat-panel__item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; cursor: pointer; font-size: 13px; color: var(--text-primary);
+}
+.cat-panel__item.ativo { background: rgba(100, 150, 255, 0.16); }
+.cat-panel__item.selecionada .cat-panel__nome { color: var(--accent); font-weight: 700; }
+.cat-panel__cod { font-family: monospace; font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+.cat-panel__nome { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-panel__tag { font-size: 10.5px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+.cat-panel__vazio { padding: 12px; font-size: 12.5px; color: var(--text-mid); line-height: 1.5; }
+
+@media (max-width: 640px) {
+  .import-review__table tbody tr {
+    grid-template-columns: 24px minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "check desc  desc"
+      ".     data  valor"
+      ".     tipo  origem"
+      ".     cat   cat";
+  }
+  .imp-c-origem { text-align: left; }
+  /* 16px evita o zoom automático do iPhone ao tocar no campo */
+  .import-review__table .imp-c input, .import-review__table .imp-c select { font-size: 16px; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   "QUANDO VOCÊ RECEBE?" — ciclo financeiro (app.js / ciclo.js)
+   ══════════════════════════════════════════════════════════════ */
+.modal__content.ciclo-modal { max-width: 480px; }
+.ciclo-modal .modal__body { padding: 28px 24px 22px; }
+.ciclo-modal__icone { font-size: 42px; text-align: center; line-height: 1; margin-bottom: 10px; }
+.ciclo-modal__titulo { color: #fff; font-size: 21px; text-align: center; margin-bottom: 8px; }
+.ciclo-modal__texto { color: var(--text-mid); font-size: 14px; line-height: 1.5; text-align: center; margin-bottom: 18px; }
+.ciclo-opcoes { display: flex; flex-direction: column; gap: 10px; }
+.ciclo-opcao {
+  display: flex; gap: 12px; align-items: flex-start; margin: 0;
+  padding: 12px 14px; border-radius: 10px; cursor: pointer;
+  background: rgba(100, 150, 255, 0.05); border: 1px solid var(--border);
+  transition: border-color var(--transition), background var(--transition);
+}
+.ciclo-opcao:has(input:checked) { border-color: var(--accent); background: rgba(100, 150, 255, 0.12); }
+.ciclo-opcao input[type="radio"] { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); flex-shrink: 0; }
+.ciclo-opcao__corpo { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.ciclo-opcao__corpo strong { color: #fff; font-size: 14.5px; }
+.ciclo-opcao__corpo > span { color: var(--text-muted); font-size: 12.5px; font-weight: 400; }
+.ciclo-opcao__corpo select { margin-top: 8px; font-size: 16px; padding: 9px 35px 9px 12px; }
+.ciclo-modal__previa {
+  margin: 16px 0 4px; padding: 10px 12px; border-radius: 8px;
+  background: rgba(52, 211, 153, 0.08); border: 1px solid rgba(52, 211, 153, 0.3);
+  color: var(--text-primary); font-size: 13px; line-height: 1.5;
+}
+.ciclo-modal__acoes { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+.ciclo-modal__acoes .btn { width: auto; min-width: 130px; padding: 11px 18px; font-size: 15px; }
+.ciclo-modal__acoes .btn--primary:hover { transform: none; }
+.perfil-ciclo__texto { color: var(--text-primary); font-size: 14px; }
+@media (max-width: 480px) {
+  .ciclo-modal__acoes { flex-direction: column-reverse; }
+  .ciclo-modal__acoes .btn { width: 100%; }
+}

@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Demonstração · Gestor Financeiro</title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="stylesheet" href="style.css">
@@ -146,11 +146,11 @@
                         <div class="demo-intro__passo"><span class="demo-intro__num">1</span><strong>Registre</strong><p>Lance entradas e saídas em segundos — ou importe o extrato do banco.</p></div>
                         <div class="demo-intro__passo"><span class="demo-intro__num">2</span><strong>Entenda</strong><p>Veja para onde vai o dinheiro, quanto sobra e como você evolui mês a mês.</p></div>
                         <div class="demo-intro__passo"><span class="demo-intro__num">3</span><strong>Planeje</strong><p>Crie metas (cofrinhos) e receba um planejamento do seu consultor.</p></div>
-                        <div class="demo-intro__passo"><span class="demo-intro__num">4</span><strong>Evolua</strong><p>Ganhe XP, mantenha a sequência, cumpra missões e desbloqueie conquistas.</p></div>
+                        <div class="demo-intro__passo"><span class="demo-intro__num">4</span><strong>Evolua</strong><p>Ganhe pontos, mantenha as semanas em dia, cumpra missões e desbloqueie conquistas.</p></div>
                     </div>
                 </div>
 
-                <div class="demo-dica"><span class="demo-dica__icone">💡</span><span>Este é o seu <b>placar</b>: nível e XP sobem a cada boa atitude, a <b>sequência</b> conta os dias seguidos registrando, e a <b>saúde do mês</b> é uma nota de 0 a 100 da sua vida financeira.</span></div>
+                <div class="demo-dica"><span class="demo-dica__icone">💡</span><span>Este é o seu <b>placar</b>: nível e pontos sobem a cada boa atitude, as <b>semanas em dia</b> contam quantas semanas seguidas você lançou seus gastos (semana sem gasto? é só tocar em “Não tive gastos”), e a <b>nota do mês</b> vai de 0 a 100 e mostra se o dinheiro está bem distribuído.</span></div>
 
                 <!-- GAMIFICAÇÃO — nível/XP, sequência e saúde do mês.
                      Preenchido por GamificacaoModule (gamificacao.js). -->
@@ -223,27 +223,27 @@
                     </div>
                     <div class="bi-grid">
                         <div class="bi-item">
-                            <span class="bi-label">🏠 Essenciais</span>
+                            <span class="bi-label">🏠 Contas obrigatórias</span>
                             <span class="bi-value" id="biSurvivalCost">R$ 0,00</span>
                             <span class="bi-detail" id="biSurvivalPct"></span>
                         </div>
                         <div class="bi-item">
-                            <span class="bi-label">🎯 Estilo de Vida</span>
+                            <span class="bi-label">🎯 Lazer, delivery e compras</span>
                             <span class="bi-value" id="biLifestyleCost">R$ 0,00</span>
                             <span class="bi-detail" id="biLifestylePct"></span>
                         </div>
                         <div class="bi-item">
-                            <span class="bi-label">💰 Investimentos</span>
+                            <span class="bi-label">💰 Guardado e investido</span>
                             <span class="bi-value" id="biInvestments">R$ 0,00</span>
                             <span class="bi-detail" id="biInvestmentsPct"></span>
                         </div>
                         <div class="bi-item">
-                            <span class="bi-label">💳 Dívidas e Financiamentos</span>
+                            <span class="bi-label">💳 Parcelas e dívidas</span>
                             <span class="bi-value" id="biDebt">R$ 0,00</span>
                             <span class="bi-detail" id="biDebtPct"></span>
                         </div>
                         <div class="bi-item bi-item--destaque">
-                            <span class="bi-label">📊 Taxa de Poupança</span>
+                            <span class="bi-label">📊 Quanto você guardou</span>
                             <span class="bi-value" id="biSavingsRate">—</span>
                             <span class="bi-detail" id="biSavingsRateDetail"></span>
                         </div>
@@ -264,7 +264,7 @@
 
                 <div class="painel-grupo"><span>🎮 Sua jornada</span></div>
 
-                <div class="demo-dica"><span class="demo-dica__icone">💡</span><span>Toda semana surgem <b>missões</b> novas que valem XP. Os <b>cofrinhos</b> mostram suas metas enchendo, e as <b>conquistas</b> guardam cada marco. Vá em <b>Transações</b>, registre um gasto e volte aqui para ver o XP subir.</span></div>
+                <div class="demo-dica"><span class="demo-dica__icone">💡</span><span>Toda semana surgem <b>missões</b> novas que valem pontos. Os <b>cofrinhos</b> mostram suas metas enchendo, e as <b>conquistas</b> guardam cada marco. Os pontos vêm de manter as contas em dia e cuidar bem do dinheiro — não da quantidade de lançamentos.</span></div>
 
 
                 <!-- Missões da semana + cofrinhos (metas) lado a lado -->
@@ -279,7 +279,7 @@
 
             <!-- TRANSAÇÕES -->
             <section id="cli-transactions" class="view-section">
-                <div class="demo-dica"><span class="demo-dica__icone">💡</span><span>Aqui você registra <b>cada entrada e saída</b> — leva poucos segundos. Também dá para <b>importar o extrato do banco</b> (OFX/CSV) e o sistema categoriza sozinho. Cada lançamento vale XP e mantém a sua sequência de dias.</span></div>
+                <div class="demo-dica"><span class="demo-dica__icone">💡</span><span>Aqui você registra <b>cada entrada e saída</b> — leva poucos segundos. Também dá para <b>importar o extrato do banco</b> (OFX/CSV) e o sistema categoriza sozinho. Manter cada semana em dia — lançando, importando o extrato ou tocando em “Não tive gastos” — vale pontos e mantém a sua sequência.</span></div>
                 <div class="card">
                     <h3>➕ Experimente: registre um gasto</h3>
                     <form class="demo-form" id="demoForm">
@@ -318,7 +318,7 @@
 
             <!-- METAS -->
             <section id="cli-goals" class="view-section">
-                <div class="demo-dica"><span class="demo-dica__icone">💡</span><span>Metas são os seus <b>cofrinhos</b>: reserva de emergência, viagem, um curso... Ao registrar um aporte vinculado a uma meta, a barra enche sozinha — e você ganha XP e conquistas.</span></div>
+                <div class="demo-dica"><span class="demo-dica__icone">💡</span><span>Metas são os seus <b>cofrinhos</b>: reserva de emergência, viagem, um curso... Quando você lança um dinheiro guardado e escolhe a meta, o cofrinho enche sozinho — e você ganha pontos e conquistas.</span></div>
                 <div class="card">
                     <h3>🎯 Minhas Metas</h3>
                     <div id="clientMetasList" class="metas-grid"></div>
@@ -337,7 +337,7 @@
                     <h4>✅ O que manter</h4>
                     <ul>
                         <li>Aporte fixo de R$ 600 na reserva logo que o salário cair.</li>
-                        <li>Registrar os gastos diariamente — sua sequência está ótima.</li>
+                        <li>Manter as semanas em dia — sua sequência está ótima.</li>
                     </ul>
                     <h4>🔧 O que ajustar</h4>
                     <ul>
@@ -358,7 +358,7 @@
             <section id="cli-mensagens" class="view-section">
                 <div class="demo-dica"><span class="demo-dica__icone">💡</span><span>Dúvida sobre um lançamento ou uma categoria? Fale <b>direto com o seu consultor</b> por aqui. Teste enviando uma mensagem.</span></div>
                 <div class="card mensagens-card">
-                    <h3>💬 Fale com o Administrador</h3>
+                    <h3>💬 Fale com o seu consultor</h3>
                     <div id="mensagensLista" class="mensagens-lista"></div>
                     <form class="mensagens-form" id="demoFormMensagem">
                         <textarea id="mensagemTexto" rows="3" placeholder="Escreva sua mensagem..." maxlength="500"></textarea>
@@ -370,7 +370,7 @@
 
             <div class="card demo-fim" style="margin-top:20px;">
                 <h3>Gostou? Comece com os seus números.</h3>
-                <p>Crie sua conta em menos de 1 minuto — com e-mail ou Google.</p>
+                <p>Crie sua conta em menos de 1 minuto, só com o seu e-mail.</p>
                 <a class="btn btn--primary" href="index.html#criar-conta">Criar minha conta grátis</a>
             </div>
         </main>
@@ -388,6 +388,8 @@ function escaparHtml(t) {
 }
 function navegarParaSecaoCliente(id) { mostrarSecao(id); }
 </script>
+<script src="som.js"></script>
+<script src="tour.js"></script>
 <script src="gamificacao.js"></script>
 <script>
 (() => {
@@ -444,14 +446,14 @@ function navegarParaSecaoCliente(id) { mostrarSecao(id); }
         const ano = hoje.getFullYear(), mes = hoje.getMonth() - m;
         const dia = (n) => new Date(ano, mes, n);
         const i = 6 - m;
-        add(dia(5), 'Salário', 5800, 'Empresa XPTO');
+        add(dia(5), 'Salário', 5800, 'Empresa Exemplo');
         if (m % 2 === 1) add(dia(18), 'Freelance', vari(i, 900, 250), 'Projeto de design');
         add(dia(6), 'Aluguel', 1650);
         add(dia(10), 'Energia', vari(i, 185, 30));
         add(dia(10), 'Internet', 119.9);
-        add(dia(6), 'Reserva de Emergência', 600, 'Aporte do mês', { meta_id: 'm1' });
+        add(dia(6), 'Reserva de Emergência', 600, 'Guardado do mês', { meta_id: 'm1' });
         if (m <= 3) add(dia(20), 'Aporte em Investimentos', 350, 'Viagem', { meta_id: 'm2' });
-        if (m >= 3) add(dia(22), 'Aporte em Investimentos', 750, 'Notebook', { meta_id: 'm3' });
+        if (m >= 3) add(dia(22), 'Aporte em Investimentos', 1500, 'Notebook', { meta_id: 'm3' });
         add(dia(15), 'Parcela do celular', 189.9, '8/12');
         add(dia(7), 'Streaming', 55.9, 'Netflix + Spotify');
         add(dia(8), 'Academia', 99.9);
@@ -519,13 +521,13 @@ function navegarParaSecaoCliente(id) { mostrarSecao(id); }
         el.classList.remove('bi-value--bom', 'bi-value--atencao', 'bi-value--ruim');
         if (m.rec <= 0) {
             el.textContent = '—';
-            UIModule.setText('biSavingsRateDetail', 'registre suas receitas para calcular');
+            UIModule.setText('biSavingsRateDetail', 'lance o que você recebe para calcular');
         } else {
             const taxa = ((m.saldo + m.inv) / m.rec) * 100;
             el.textContent = `${taxa.toFixed(0)}%`;
             el.classList.add(taxa >= 20 ? 'bi-value--bom' : taxa >= 0 ? 'bi-value--atencao' : 'bi-value--ruim');
-            UIModule.setText('biSavingsRateDetail', taxa >= 20 ? 'ótimo — meta de 20% alcançada'
-                : taxa >= 0 ? `faltam ${(20 - taxa).toFixed(0)} p.p. para a meta de 20%` : 'gastou mais do que ganhou');
+            UIModule.setText('biSavingsRateDetail', taxa >= 20 ? 'ótimo — você guardou 20% ou mais do que recebeu'
+                : taxa >= 0 ? 'do que você recebeu · o recomendado é guardar 20%' : 'você gastou mais do que recebeu');
         }
         // Maiores gastos
         const porCat = {};
@@ -543,7 +545,7 @@ function navegarParaSecaoCliente(id) { mostrarSecao(id); }
     }
 
     // ─── Transações ───
-    const GRUPO_LABEL = { essencial: 'Essencial', estilo_de_vida: 'Estilo de Vida', investimento: 'Investimento', divida: 'Dívida/Financiamento', renda: 'Renda' };
+    const GRUPO_LABEL = { essencial: 'Conta obrigatória', estilo_de_vida: 'Lazer e compras', investimento: 'Dinheiro guardado', divida: 'Parcela/dívida', renda: 'Dinheiro que entrou' };
     let filtroLista = 'todos';
     function renderTransacoes() {
         const lista = transacoes.slice()
@@ -657,7 +659,7 @@ function navegarParaSecaoCliente(id) { mostrarSecao(id); }
         e.target.reset(); preencherCategorias();
         renderTransacoes();
         renderTudo();
-        demoAviso('✅ Lançamento registrado! Veja no Dashboard como o resumo, as missões e o XP mudaram.');
+        demoAviso('✅ Lançamento registrado! Veja no Dashboard como o resumo e as missões mudaram.');
     });
     const campoMsg = document.getElementById('mensagemTexto');
     campoMsg.addEventListener('keydown', (e) => {

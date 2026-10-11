@@ -21,28 +21,25 @@
  * antes de Despesa em toda consulta/lista/select.
  *
  * ATUALIZAÇÃO — CÓDIGO CONTÁBIL REAL DO BANCO (`categorias.codigo_contabil`):
- * O plano de contas do modelo fornecido (1.0.0 Receitas / 2.0.0
- * Despesas Fixas / 3.0.0 Investimentos / 4.0.0 Estilo de Vida, com
- * contas granulares tipo "2.1.4 Energia Elétrica") foi aplicado
- * direto no banco — cada categoria do modelo agora tem um código real
- * salvo em `codigo_contabil` (ex: "2.1.4"), não mais calculado só na
- * hora de exibir. A grade prioriza esse código real quando ele existe;
- * categorias mais antigas/pessoais que ainda não têm código (ex:
- * "Lazer", "Moradia", categorias criadas por clientes) continuam
- * caindo no código de GRUPO calculado (obterCodigoGrupo, de
- * contabilidade.js) como fallback — nada quebra, nenhuma categoria
- * "some" da tela por falta de código.
+ * A grade prioriza o código real quando ele existe; categorias sem
+ * código caem no código de GRUPO calculado (obterCodigoGrupo, de
+ * contabilidade.js) como fallback.
  *
  * ATUALIZAÇÃO — MESCLAR CATEGORIAS (RESOLVE DUPLICATAS/PROLIFERAÇÃO):
- * Ferramenta nova pra consolidar categorias que acabam virando
- * sinônimos umas das outras com o tempo (ex: cliente cria "Unha",
- * depois "Manicure" — mesma coisa, duas categorias). O botão
- * "🔀 Mesclar" (em qualquer card, inclusive nos Pendentes de
- * Contabilização) abre um modal pra escolher a categoria de destino;
- * ao confirmar, TODAS as transações e regras aprendidas da categoria
- * de origem são movidas pra categoria de destino, e a origem é
- * apagada. Ação destrutiva e irreversível — por isso pede confirmação
- * dupla (o modal + um `confirm()` nativo do navegador).
+ * O botão "🔀 Mesclar" move TODAS as transações, regras aprendidas e
+ * regras globais da categoria de origem para a de destino, junta os
+ * sinônimos e apaga a origem. Pede confirmação dupla.
+ *
+ * ATUALIZAÇÃO — EXCLUIR CATEGORIA EM USO (out/2026):
+ * Antes, "🗑️ Deletar" numa categoria com lançamentos estourava o erro
+ * do banco ("violates foreign key constraint transacoes_categoria_id_fkey").
+ * Agora o sistema conta os lançamentos primeiro:
+ *   - nenhum lançamento → exclui direto (com confirmação);
+ *   - com lançamentos   → abre o mesmo modal da mesclagem, em modo
+ *     "Excluir categoria em uso": o admin escolhe para qual categoria os
+ *     lançamentos vão, e só então a categoria é excluída.
+ * A mesclagem também passou a mover as REGRAS GLOBAIS (antes elas eram
+ * apagadas junto com a categoria, por causa do ON DELETE CASCADE).
  */
 
 let categoriaEmEdicao = null;
@@ -88,7 +85,7 @@ const ORDEM_PLANO_DE_CONTAS = [
 function normalizarTextoBusca(txt) {
   return (txt || '')
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
     .trim();
 }
@@ -270,7 +267,7 @@ function renderCategoriasFiltradas(termoBusca) {
   }
 
   if (!lista.length) {
-    grid.innerHTML = `<p class="empty-state">Nenhuma categoria encontrada para "${termoBusca}".</p>`;
+    grid.innerHTML = `<p class="empty-state">Nenhuma categoria encontrada para "${escaparHtml(termoBusca)}".</p>`;
     return;
   }
 
@@ -315,9 +312,8 @@ function renderCategoriasFiltradas(termoBusca) {
 
 /**
  * Ordena os itens de uma seção: primeiro pelo `codigo_contabil` REAL
- * (quando existe — string compara certo até 2 dígitos por segmento,
- * que é o que o plano de contas atual usa), com quem não tem código
- * ficando por último e ordenado só por nome.
+ * (quando existe), com quem não tem código ficando por último e
+ * ordenado só por nome.
  */
 function montarSecaoPlanoDeContas(infoGrupo, itens) {
   const itensOrdenados = [...itens].sort((a, b) => {
@@ -354,10 +350,6 @@ function renderCardCategoria(c, codigoGrupoFallback, indiceFallback) {
   const cliente      = c.cliente_id ? allClientes.find(cl => cl.id === c.cliente_id) : null;
   const qtdSinonimos = Array.isArray(c.palavras_chave) ? c.palavras_chave.length : 0;
 
-  // Prioriza o código REAL salvo no banco (plano de contas do
-  // modelo); só usa o código calculado por posição quando a categoria
-  // não tem codigo_contabil próprio (ex: categorias mais antigas ou
-  // criadas por clientes, que ainda não foram encaixadas no modelo).
   const codigoConta = c.codigo_contabil
     ? c.codigo_contabil
     : (codigoGrupoFallback ? `${codigoGrupoFallback}.${String(indiceFallback).padStart(2, '0')}` : '');
@@ -405,8 +397,7 @@ async function abrirModalCategoria(item) {
     campoCodigo.value = item?.codigo_contabil || '';
   }
 
-  // Alcance: Global (cliente_id nulo) ou Específica de um cliente —
-  // ver MIGRACAO nenhuma necessária, coluna já existia (categorias.cliente_id).
+  // Alcance: Global (cliente_id nulo) ou Específica de um cliente.
   const campoAlcance = document.getElementById('categoria-alcance');
   if (campoAlcance) {
     campoAlcance.value = item?.cliente_id ? 'pessoal' : 'global';
@@ -501,48 +492,92 @@ async function salvarCategoria() {
   renderCategorias();
 }
 
+/**
+ * Excluir categoria. Se algum lançamento usa a categoria, o banco não
+ * deixa apagar (os lançamentos ficariam sem categoria) — então o admin
+ * escolhe para onde eles vão, no modal de mesclagem em modo "excluir".
+ */
 async function confirmarDeletarCategoria(id, nome) {
-  if (!confirm(`Tem certeza que deseja deletar a categoria "${nome}"? Transações que já usam essa categoria podem ficar órfãs. Se o objetivo é juntar com outra categoria, use "🔀 Mesclar" em vez de deletar.`)) return;
+  const { count, error: errCount } = await supabaseClient
+    .from('transacoes')
+    .select('id', { count: 'exact', head: true })
+    .eq('categoria_id', id);
+
+  if (errCount) {
+    showToast('Não consegui verificar os lançamentos desta categoria: ' + errCount.message, 'error');
+    return;
+  }
+
+  if (count > 0) {
+    abrirModalMesclarCategoria(id, nome, { modoExcluir: true, qtdLancamentos: count });
+    return;
+  }
+
+  if (!confirm(`Excluir a categoria "${nome}"?\n\nNenhum lançamento usa esta categoria. As regras de classificação ligadas a ela também serão apagadas.`)) return;
 
   const { error } = await supabaseClient.from('categorias').delete().eq('id', id);
 
   if (error) {
-    showToast('Erro ao deletar (pode haver transações usando essa categoria): ' + error.message, 'error');
+    showToast('Erro ao excluir: ' + error.message, 'error');
     return;
   }
 
-  showToast('Categoria removida.');
+  showToast(`Categoria "${nome}" excluída.`);
   renderCategorias();
 }
 
 // ══════════════════════════════════════════════════════════════
-// MESCLAR CATEGORIAS
+// MESCLAR CATEGORIAS (também usado para EXCLUIR categoria em uso)
 // ══════════════════════════════════════════════════════════════
 /**
- * Consolida duas categorias que acabaram virando a mesma coisa (ex:
- * "Unha" e "Manicure"). Move TODAS as transações e regras aprendidas
- * da categoria de ORIGEM pra categoria de DESTINO, depois apaga a
- * origem. Só oferece como destino categorias do MESMO tipo
- * (receita/despesa) da origem, pra nunca misturar uma conta de
- * entrada com uma de saída.
+ * Consolida duas categorias (ex: "Unha" e "Manicure"). Move TODAS as
+ * transações, regras aprendidas e regras globais da ORIGEM para o
+ * DESTINO, depois apaga a origem. Só oferece como destino categorias do
+ * MESMO tipo (receita/despesa) da origem.
+ *
+ * opcoes.modoExcluir: mesmo fluxo, com textos de "excluir categoria em
+ * uso" (o admin clicou em 🗑️ numa categoria que tem lançamentos).
  */
-function abrirModalMesclarCategoria(origemId, origemNome) {
+let modoMesclagemAtual = { modoExcluir: false, qtdLancamentos: 0 };
+
+function abrirModalMesclarCategoria(origemId, origemNome, opcoes = {}) {
   const origemCat = categoriasCache.find(c => c.id === origemId);
   if (!origemCat) { showToast('Categoria não encontrada — recarregue a página.', 'error'); return; }
 
+  modoMesclagemAtual = { modoExcluir: !!opcoes.modoExcluir, qtdLancamentos: opcoes.qtdLancamentos || 0 };
+
   document.getElementById('mesclar-origem-id').value = origemId;
-  document.getElementById('mesclar-origem-descricao').textContent =
-    `Mover todas as transações de "${origemNome}" para:`;
+
+  const titulo = document.getElementById('modal-mesclar-title');
+  const btn    = document.getElementById('btn-confirmar-mesclagem');
+  const desc   = document.getElementById('mesclar-origem-descricao');
+
+  if (modoMesclagemAtual.modoExcluir) {
+    const n = modoMesclagemAtual.qtdLancamentos;
+    if (titulo) titulo.textContent = '🗑️ Excluir categoria em uso';
+    if (desc) desc.textContent =
+      `"${origemNome}" é usada em ${n} lançamento${n > 1 ? 's' : ''} de clientes. ` +
+      `Para excluir, escolha para qual categoria ${n > 1 ? 'esses lançamentos vão' : 'esse lançamento vai'}:`;
+    if (btn) btn.textContent = 'Mover lançamentos e excluir';
+  } else {
+    if (titulo) titulo.textContent = '🔀 Mesclar Categoria';
+    if (desc) desc.textContent = `Mover todas as transações de "${origemNome}" para:`;
+    if (btn) btn.textContent = 'Mesclar e Deletar Origem';
+  }
 
   const select = document.getElementById('mesclar-destino-select');
-  const candidatas = categoriasCache.filter(c => c.id !== origemId && c.tipo === origemCat.tipo);
+  // Destino: mesmo tipo, e global ou pessoal do MESMO cliente — nunca
+  // jogar lançamentos de um cliente na categoria pessoal de outro.
+  const candidatas = categoriasCache.filter(c =>
+    c.id !== origemId && c.tipo === origemCat.tipo &&
+    (!c.cliente_id || c.cliente_id === origemCat.cliente_id));
 
   if (!candidatas.length) {
     select.innerHTML = '<option value="">Nenhuma outra categoria do mesmo tipo disponível</option>';
   } else {
     select.innerHTML = candidatas
       .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-      .map(c => `<option value="${c.id}">${c.codigo_contabil ? `[${escaparHtml(c.codigo_contabil)}] ` : ''}${escaparHtml(c.nome)}</option>`)
+      .map(c => `<option value="${c.id}">${c.codigo_contabil ? `[${escaparHtml(c.codigo_contabil)}] ` : ''}${escaparHtml(c.nome)}${c.cliente_id ? ' (pessoal)' : ''}</option>`)
       .join('');
   }
 
@@ -558,25 +593,20 @@ async function confirmarMesclagemCategoria() {
 
   const origemCat  = categoriasCache.find(c => c.id === origemId);
   const destinoCat = categoriasCache.find(c => c.id === destinoId);
+  const excluindo  = modoMesclagemAtual.modoExcluir;
 
-  if (!confirm(`Mesclar "${origemCat?.nome}" em "${destinoCat?.nome}"?\n\nTodas as transações e regras aprendidas serão movidas, e "${origemCat?.nome}" será DELETADA. Esta ação não pode ser desfeita.`)) {
-    return;
-  }
+  const pergunta = excluindo
+    ? `Mover os lançamentos de "${origemCat?.nome}" para "${destinoCat?.nome}" e excluir "${origemCat?.nome}"?\n\nEsta ação não pode ser desfeita.`
+    : `Mesclar "${origemCat?.nome}" em "${destinoCat?.nome}"?\n\nTodas as transações e regras serão movidas, e "${origemCat?.nome}" será DELETADA. Esta ação não pode ser desfeita.`;
+  if (!confirm(pergunta)) return;
 
   const btn = document.getElementById('btn-confirmar-mesclagem');
-  if (btn) { btn.disabled = true; btn.textContent = 'Mesclando...'; }
+  const textoBotao = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = excluindo ? 'Excluindo...' : 'Mesclando...'; }
 
   try {
-    // ⚠️ CORREÇÃO — SINÔNIMOS SE PERDIAM NA MESCLAGEM: antes, só as
-    // transações e regras_aprendidas eram movidas pra categoria de
-    // destino — os `palavras_chave` (sinônimos) da categoria de
-    // ORIGEM eram simplesmente perdidos quando ela era deletada.
-    // Também é essencial incluir o NOME da categoria de origem como
-    // sinônimo do destino: sem isso, depois da mesclagem, qualquer
-    // descrição futura que batesse com o nome da categoria apagada
-    // (ex: "Unha", mesclada em "Salão de Beleza") deixaria de ser
-    // reconhecida por completo, porque a categoria "Unha" não existe
-    // mais pra bater consigo mesma.
+    // Sinônimos da origem (e o próprio nome dela) passam para o destino,
+    // para descrições futuras continuarem sendo reconhecidas.
     const palavrasOrigem    = Array.isArray(origemCat?.palavras_chave)  ? origemCat.palavras_chave  : [];
     const palavrasDestino   = Array.isArray(destinoCat?.palavras_chave) ? destinoCat.palavras_chave : [];
     const palavrasMescladas = [...new Set([...palavrasDestino, ...palavrasOrigem, origemCat?.nome].filter(Boolean))];
@@ -599,20 +629,39 @@ async function confirmarMesclagemCategoria() {
       .eq('categoria_id', origemId);
     if (errRegras) throw errRegras;
 
+    // Regras globais: antes eram apagadas em cascata junto com a origem
+    const { error: errGlobais } = await supabaseClient
+      .from('regras_globais')
+      .update({ categoria_id: destinoId })
+      .eq('categoria_id', origemId);
+    if (errGlobais && !/does not exist|schema cache/i.test(errGlobais.message || '')) throw errGlobais;
+
+    // Confere se sobrou algum lançamento preso à origem (ex.: bloqueado
+    // por permissão) antes de tentar apagar — evita o erro de FK cru.
+    const { count: restantes } = await supabaseClient
+      .from('transacoes')
+      .select('id', { count: 'exact', head: true })
+      .eq('categoria_id', origemId);
+    if (restantes > 0) {
+      throw new Error(`${restantes} lançamento(s) não puderam ser movidos. Nada foi excluído.`);
+    }
+
     const { error: errDelete } = await supabaseClient
       .from('categorias')
       .delete()
       .eq('id', origemId);
     if (errDelete) throw errDelete;
 
-    showToast(`"${origemCat?.nome}" mesclada em "${destinoCat?.nome}"!`);
+    showToast(excluindo
+      ? `"${origemCat?.nome}" excluída. Lançamentos movidos para "${destinoCat?.nome}".`
+      : `"${origemCat?.nome}" mesclada em "${destinoCat?.nome}"!`);
     closeModal('modal-mesclar-categoria');
     renderCategorias();
   } catch (err) {
-    showToast('Erro ao mesclar: ' + err.message, 'error');
+    showToast((excluindo ? 'Erro ao excluir: ' : 'Erro ao mesclar: ') + err.message, 'error');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Mesclar e Deletar Origem'; }
+    if (btn) { btn.disabled = false; btn.textContent = textoBotao; }
   }
 }
 
-console.log('✅ categorias.js carregado (Plano de Contas com código real + Mesclar Categorias)');
+console.log('✅ categorias.js carregado (Plano de Contas + Mesclar + Excluir categoria em uso)');

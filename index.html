@@ -2,10 +2,18 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Gestor Financeiro Pro</title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="stylesheet" href="style.css">
+    <!-- App instalável (necessário para avisos push no iPhone: Tela de Início) -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#6495ff">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="MentorFin">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="logo.png">
     <!-- Anti-flicker: o body começa com visibility:hidden (via CSS).
          Se o JS demorar mais de 2s, o ui.js revela automaticamente.
          Garantia extra: nunca mostra sidebar antes do login. -->
@@ -39,18 +47,6 @@
                 <button type="submit" class="btn btn--primary">Entrar</button>
             </form>
             <div id="loginError" class="login-error hidden"></div>
-
-            <!-- Login com Google (Supabase OAuth) — ver loginComGoogle() em app.js -->
-            <div class="login-divisor"><span>ou</span></div>
-            <button type="button" class="btn-google" id="btnLoginGoogle" onclick="loginComGoogle()">
-                <svg viewBox="0 0 48 48" width="20" height="20" aria-hidden="true">
-                    <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/>
-                    <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
-                    <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/>
-                    <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/>
-                </svg>
-                Entrar com Google
-            </button>
 
             <p class="login-box__toggle-text">
                 Não tem conta?
@@ -109,16 +105,6 @@
                 <button type="submit" class="btn btn--primary">Criar Conta</button>
                 <div id="registerError" class="login-error hidden" style="margin-top:12px;"></div>
             </form>
-            <div class="login-divisor"><span>ou</span></div>
-            <button type="button" class="btn-google" onclick="loginComGoogle()">
-                <svg viewBox="0 0 48 48" width="20" height="20" aria-hidden="true">
-                    <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/>
-                    <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
-                    <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/>
-                    <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/>
-                </svg>
-                Criar conta com Google
-            </button>
             <p class="login-box__toggle-text">
                 Já tem conta?
                 <a href="#" onclick="toggleScreen('loginScreen'); return false;">Fazer login</a>
@@ -252,27 +238,27 @@
                     </div>
                     <div class="bi-grid">
                         <div class="bi-item">
-                            <span class="bi-label">🏠 Essenciais</span>
+                            <span class="bi-label">🏠 Contas obrigatórias</span>
                             <span class="bi-value" id="biSurvivalCost">R$ 0,00</span>
                             <span class="bi-detail" id="biSurvivalPct"></span>
                         </div>
                         <div class="bi-item">
-                            <span class="bi-label">🎯 Estilo de Vida</span>
+                            <span class="bi-label">🎯 Lazer, delivery e compras</span>
                             <span class="bi-value" id="biLifestyleCost">R$ 0,00</span>
                             <span class="bi-detail" id="biLifestylePct"></span>
                         </div>
                         <div class="bi-item">
-                            <span class="bi-label">💰 Investimentos</span>
+                            <span class="bi-label">💰 Guardado e investido</span>
                             <span class="bi-value" id="biInvestments">R$ 0,00</span>
                             <span class="bi-detail" id="biInvestmentsPct"></span>
                         </div>
                         <div class="bi-item">
-                            <span class="bi-label">💳 Dívidas e Financiamentos</span>
+                            <span class="bi-label">💳 Parcelas e dívidas</span>
                             <span class="bi-value" id="biDebt">R$ 0,00</span>
                             <span class="bi-detail" id="biDebtPct"></span>
                         </div>
                         <div class="bi-item bi-item--destaque">
-                            <span class="bi-label">📊 Taxa de Poupança</span>
+                            <span class="bi-label">📊 Quanto você guardou</span>
                             <span class="bi-value" id="biSavingsRate">—</span>
                             <span class="bi-detail" id="biSavingsRateDetail"></span>
                         </div>
@@ -309,7 +295,7 @@
                     <h3>➕ Registrar Transação</h3>
                     <form onsubmit="handleAddTransaction(event)">
                         <div class="form-group">
-                            <label>Descrição (opcional)</label>
+                            <label>Descrição (opcional — ex.: onde foi o gasto)</label>
                             <input type="text" id="transDescription" placeholder="Ex: Supermercado Extra, Uber pro trabalho, Salário...">
                         </div>
                         <div class="form-group">
@@ -325,9 +311,9 @@
                             <button type="button" class="btn-link-nova-categoria" onclick="abrirModalNovaCategoria()">+ Criar categoria personalizada</button>
                         </div>
                         <div class="form-group hidden" id="transMetaWrapper">
-                            <label>🎯 Vincular a uma Meta (opcional)</label>
+                            <label>🐷 Esse dinheiro vai para qual meta? (opcional)</label>
                             <select id="transMeta">
-                                <option value="">Não vincular a nenhuma meta</option>
+                                <option value="">Nenhuma meta</option>
                             </select>
                         </div>
                         <div class="form-row">
@@ -476,12 +462,11 @@
                     <!-- Dica: explica como o "Economizado" sobe sozinho ao
                          vincular uma transação de Investimento a uma meta. -->
                     <div class="meta-dica-box">
-                        💡 <strong>Como fazer o "Economizado" da sua meta subir sozinho:</strong>
-                        na aba <strong>Transações</strong>, registre um lançamento com uma categoria de
-                        <strong>Investimento</strong> (ex: "Aporte", "Reserva de Emergência") — vai aparecer um
-                        campo <strong>"🎯 Vincular a uma Meta"</strong>. Escolha a meta ali e o valor entra
-                        automaticamente no progresso dela. Também dá pra editar o valor manualmente clicando em
-                        ✏️ em qualquer meta abaixo.
+                        💡 <strong>Como encher o cofrinho:</strong> quando guardar um dinheiro, lance na aba
+                        <strong>Transações</strong> usando uma categoria de guardar dinheiro (por exemplo
+                        <strong>"Reserva de Emergência"</strong> ou <strong>"Aporte em Investimentos"</strong>).
+                        Vai aparecer a pergunta <strong>"Esse dinheiro vai para qual meta?"</strong> — escolha a meta
+                        e o valor entra no cofrinho sozinho. Se precisar corrigir, toque em ✏️ na meta.
                     </div>
 
                     <div id="clientMetasList" class="metas-client-grid">
@@ -496,7 +481,7 @@
                     <h3>📊 Planejamento Personalizado</h3>
                     <div id="clientPlanningRequestArea"></div>
                     <div id="clientPlanningList">
-                        <p class="empty-state">Aguardando planejamento do administrador...</p>
+                        <p class="empty-state">Seu consultor ainda não publicou um planejamento. Toque em “Pedir planejamento” para solicitar.</p>
                     </div>
                 </div>
             </section>
@@ -505,10 +490,10 @@
                  sem precisar sair do app. Ver mensagens-cliente.js. -->
             <section id="cli-mensagens" class="view-section">
                 <div class="card mensagens-card">
-                    <h3>💬 Fale com o Administrador</h3>
+                    <h3>💬 Fale com o seu consultor</h3>
                     <p style="color:var(--text-muted); font-size:13px; margin-bottom:14px;">
                         Tem alguma dúvida sobre um lançamento, categoria ou o seu planejamento? Mande uma mensagem —
-                        o administrador recebe um aviso e responde por aqui.
+                        o seu consultor recebe um aviso e responde por aqui.
                     </p>
 
                     <div id="mensagensLista" class="mensagens-lista">
@@ -556,6 +541,54 @@
 </div>
 
 <!-- ============================================================
+     MODAL: QUANDO VOCÊ RECEBE? (ciclo financeiro — ver app.js/ciclo.js)
+     Aparece no primeiro login depois da atualização; pode ser trocado
+     depois em Perfil → "Dia de recebimento".
+============================================================ -->
+<div id="modalCiclo" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="cicloTitulo">
+    <div class="modal__content ciclo-modal">
+        <div class="modal__body">
+            <div class="ciclo-modal__icone" aria-hidden="true">📅</div>
+            <h2 class="ciclo-modal__titulo" id="cicloTitulo">Quando você recebe?</h2>
+            <p class="ciclo-modal__texto">Assim o seu "mês" no app começa no dia em que o dinheiro entra — e os resumos, a nota e as metas ficam mais certos.</p>
+
+            <div class="ciclo-opcoes">
+                <label class="ciclo-opcao">
+                    <input type="radio" name="cicloTipo" value="dia_mes" checked>
+                    <span class="ciclo-opcao__corpo">
+                        <strong>Todo mês no mesmo dia</strong>
+                        <span>Ex.: salário todo dia 5 ou dia 27</span>
+                        <select id="cicloDiaMes" aria-label="Dia do mês em que recebe"></select>
+                    </span>
+                </label>
+                <label class="ciclo-opcao">
+                    <input type="radio" name="cicloTipo" value="dia_util">
+                    <span class="ciclo-opcao__corpo">
+                        <strong>Num dia útil</strong>
+                        <span>Ex.: "no 5º dia útil", como muitas empresas pagam</span>
+                        <select id="cicloDiaUtil" aria-label="Dia útil em que recebe"></select>
+                    </span>
+                </label>
+                <label class="ciclo-opcao">
+                    <input type="radio" name="cicloTipo" value="sem_dia_fixo">
+                    <span class="ciclo-opcao__corpo">
+                        <strong>Não tenho dia fixo</strong>
+                        <span>Autônomo, comissões, renda variável — usamos o mês normal</span>
+                    </span>
+                </label>
+            </div>
+
+            <p class="ciclo-modal__previa" id="cicloPrevia"></p>
+
+            <div class="ciclo-modal__acoes">
+                <button type="button" class="btn btn--secondary" id="btnCicloDepois" onclick="fecharPerguntaCiclo()">Responder depois</button>
+                <button type="button" class="btn btn--primary" id="btnCicloSalvar" onclick="salvarCicloCliente()">Salvar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================
      MODAL: EDITAR META
 ============================================================ -->
 <div id="modalEditarMeta" class="modal hidden">
@@ -581,8 +614,9 @@
                 </div>
             </div>
             <p style="color:var(--text-muted); font-size:12px; line-height:1.5;">
-                💡 O valor economizado também sobe sozinho quando você vincula uma transação de Investimento a
-                esta meta na aba Transações — editar aqui é útil pra ajustes manuais.
+                💡 O valor guardado sobe sozinho quando você lança um dinheiro e escolhe esta meta.
+                Mude aqui só para corrigir. Para a meta contar como concluída nos seus pontos, o dinheiro
+                precisa ter sido lançado.
             </p>
             <button type="button" onclick="handleSalvarEdicaoMeta()" id="btnSalvarEdicaoMeta" class="btn btn--primary" style="width:100%;">Salvar Alterações</button>
         </div>
@@ -609,6 +643,21 @@
                 <p style="color:var(--text-mid); font-size:12px; margin:15px 0 6px;">E-mail</p>
                 <p id="profileClientEmail" style="color:var(--accent); font-size:14px; word-break:break-all;"></p>
             </div>
+            <!-- Dia de recebimento (ciclo financeiro) -->
+            <div class="perfil-avisos">
+                <p class="perfil-avisos__titulo">📅 Dia de recebimento</p>
+                <p id="profileClienteCiclo" class="perfil-ciclo__texto">—</p>
+                <button type="button" class="btn btn--secondary perfil-avisos__btn" onclick="closeModal('clientProfileModal'); abrirPerguntaCiclo();">Alterar dia de recebimento</button>
+            </div>
+            <!-- Avisos e som (som.js / notifications.js) -->
+            <div class="perfil-avisos">
+                <p class="perfil-avisos__titulo">🔔 Avisos</p>
+                <button type="button" class="btn btn--secondary perfil-avisos__btn" data-som-toggle aria-pressed="true">🔊 Som das notificações: ligado</button>
+                <button type="button" class="btn btn--secondary perfil-avisos__btn hidden" id="btnAtivarAvisos" onclick="NotificacoesModule.ativarAvisos()">🔔 Ativar avisos neste aparelho</button>
+                <button type="button" class="btn btn--secondary perfil-avisos__btn hidden" id="btnTestarAvisos" onclick="NotificacoesModule.testarAvisos()">📨 Enviar aviso de teste</button>
+                <p id="avisosDicaIOS" class="perfil-avisos__dica hidden"></p>
+                <p class="perfil-avisos__dica">Você recebe um aviso quando o consultor responde ou publica um planejamento, e um lembrete na sexta (e na segunda) só se a semana ainda não estiver em dia — mesmo com o app fechado.</p>
+            </div>
             <button onclick="handleLogout()" class="btn btn--logout" style="width:100%; margin-top:20px;">🚪 Sair da conta</button>
         </div>
     </div>
@@ -620,18 +669,18 @@
 <div id="modalSolicitarPlanejamento" class="modal hidden">
     <div class="modal__content" style="max-width:440px;">
         <header class="modal__header">
-            <h2>📩 Solicitar Planejamento</h2>
+            <h2>📩 Pedir planejamento</h2>
             <button onclick="closeModal('modalSolicitarPlanejamento')" class="modal__close-btn">✕</button>
         </header>
         <div class="modal__body">
             <p style="color:var(--text-muted); font-size:13px; margin-bottom:16px;">
-                O administrador vai receber um aviso e criar um planejamento personalizado pra você.
+                Seu consultor vai receber um aviso e montar um plano feito para a sua situação.
             </p>
             <div class="form-group">
                 <label>Quer contar alguma coisa específica? (opcional)</label>
                 <textarea id="solicitarPlanejamentoMensagem" rows="4" placeholder="Ex: Quero focar em juntar dinheiro para uma viagem no fim do ano..."></textarea>
             </div>
-            <button type="button" onclick="handleEnviarSolicitacaoPlanejamento()" id="btnEnviarSolicitacaoPlanejamento" class="btn btn--primary" style="width:100%;">Enviar Solicitação</button>
+            <button type="button" onclick="handleEnviarSolicitacaoPlanejamento()" id="btnEnviarSolicitacaoPlanejamento" class="btn btn--primary" style="width:100%;">Enviar pedido</button>
         </div>
     </div>
 </div>
@@ -663,9 +712,9 @@
                 </div>
             </div>
             <div class="form-group hidden" id="editTransMetaWrapper">
-                <label>🎯 Vincular a uma Meta (opcional)</label>
+                <label>🐷 Esse dinheiro vai para qual meta? (opcional)</label>
                 <select id="editTransMeta">
-                    <option value="">Não vincular a nenhuma meta</option>
+                    <option value="">Nenhuma meta</option>
                 </select>
             </div>
             <div class="form-row">
@@ -690,6 +739,7 @@
 <script src="config.js"></script>
 <script src="seguranca.js"></script>
 <script src="ui.js"></script>
+<script src="som.js"></script>
 <script src="ver-senha.js"></script>
 <script src="auth.js"></script>
 <script src="database.js"></script>
@@ -698,6 +748,7 @@
 <script src="goals.js"></script>
 <script src="planning.js"></script>
 <script src="client.js"></script>
+<script src="ciclo.js"></script>
 <script src="app.js"></script>
 <script src="smart-input.js"></script>
 <script src="regras-aprendidas.js"></script>
@@ -705,6 +756,9 @@
 <script src="categoria-personalizada.js"></script>
 <script src="mensagens-cliente.js"></script>
 <script src="gamificacao.js"></script>
+<script src="push.js"></script>
+<script src="notifications.js"></script>
+<script src="tour.js"></script>
 
 </body>
 </html>

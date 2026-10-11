@@ -231,8 +231,19 @@ async function abrirModalPlanejamento(plan, opts = {}) {
 }
 
 // ── Resumo financeiro + dicas do cliente ──────────────────────
-function inicioJanelaAnalise() {
+function inicioJanelaAnalise(clienteId) {
   const hoje = new Date();
+
+  // Cliente com ciclo próprio (ex.: dia 27): a janela começa no início do
+  // ciclo de N-1 períodos atrás, em vez do dia 1 do mês.
+  const cliente = allClientes.find(c => c.id === clienteId);
+  if (cliente && typeof CicloModule !== 'undefined') {
+    const cfg = CicloModule.deLinha(cliente);
+    if (!CicloModule.ehMesCalendario(cfg)) {
+      return CicloModule.cicloPorOffset(cfg, hoje, -(PLANEJAMENTO_MESES_ANALISE - 1)).inicio;
+    }
+  }
+
   const d = new Date(hoje.getFullYear(), hoje.getMonth() - (PLANEJAMENTO_MESES_ANALISE - 1), 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
 }
@@ -246,7 +257,7 @@ async function carregarResumoFinanceiro(clienteId) {
     .from('transacoes')
     .select('valor, tipo, data_competencia, categorias(grupo)')
     .eq('client_id', clienteId)
-    .gte('data_competencia', inicioJanelaAnalise());
+    .gte('data_competencia', inicioJanelaAnalise(clienteId));
 
   if (error) {
     console.error('❌ carregarResumoFinanceiro:', error.message);
