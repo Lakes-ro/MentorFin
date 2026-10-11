@@ -11,6 +11,16 @@
  * O papel de administrador agora vem do banco (usuarios_perfis, perfil
  * 'admin' — ver auth.js e admin.js). O e-mail do admin foi retirado
  * daqui: este arquivo é público (qualquer visitante consegue lê-lo).
+ *
+ * CORREÇÃO — "PRECISO LOGAR TODA VEZ":
+ * auth.signOut() do Supabase, sem parâmetro, usa scope 'global' —
+ * encerra a sessão do usuário em TODOS os aparelhos e abas. Bastava
+ * clicar "Sair" no computador (ou abrir o admin.html com conta de
+ * cliente, que desloga quem não é admin) para o celular perder a
+ * sessão: na próxima abertura o refresh token não existe mais
+ * ("Refresh Token Not Found", 400) e a tela de login volta.
+ * Agora todo signOut vale só para ESTE navegador (scope 'local'),
+ * em qualquer arquivo que o chame.
  */
 
 const CONFIG = {
@@ -59,6 +69,7 @@ const CONFIG = {
 let supabaseClient = null;
 
 function initSupabase() {
+    if (supabaseClient) return true; // evita 2º cliente (2 refresh concorrentes)
     if (!window.supabase) {
         console.error('❌ SDK Supabase não carregado');
         return false;
@@ -76,6 +87,11 @@ function initSupabase() {
                 }
             }
         );
+
+        // "Sair" encerra só a sessão deste navegador (ver cabeçalho).
+        const signOutOriginal = supabaseClient.auth.signOut.bind(supabaseClient.auth);
+        supabaseClient.auth.signOut = (opcoes = {}) => signOutOriginal({ scope: 'local', ...opcoes });
+
         console.log('✅ Supabase conectado (sessão persistida)');
         return true;
     } catch (error) {

@@ -19,7 +19,7 @@
  */
 
 // Chave PÚBLICA (pode ficar no código). A privada fica só nos segredos do Supabase.
-const MENTORFIN_VAPID_PUBLIC_KEY = 'BPOXdr8-TlZbm6fOCDM6Sl--JhUWRGNvu-BbhQXL4TvpkQQmokSRtX0fE6W0eslBjmnj3QYs4kvgQNVYj6d27xo';
+const MENTORFIN_VAPID_PUBLIC_KEY = 'BOjUAVxkQbkWYQGY8dKC5t2RfvnRngkQf_cUHCjjvMYOl3Doylo0obY43-xu-txnuO-SlPX3jNlLdtRdVtkeZj0';
 
 const PushModule = (() => {
     let registro = null;
