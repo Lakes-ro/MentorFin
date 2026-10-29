@@ -6,14 +6,7 @@
     <title>Gestor Financeiro Pro</title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="stylesheet" href="style.css">
-    <!-- App instalável (necessário para avisos push no iPhone: Tela de Início) -->
-    <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#6495ff">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="MentorFin">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="apple-touch-icon" href="logo.png">
+    <link rel="stylesheet" href="carteiras.css">
     <!-- Anti-flicker: o body começa com visibility:hidden (via CSS).
          Se o JS demorar mais de 2s, o ui.js revela automaticamente.
          Garantia extra: nunca mostra sidebar antes do login. -->
@@ -170,6 +163,10 @@
             <!-- DASHBOARD CLIENTE -->
             <section id="cli-dashboard" class="view-section active">
 
+                <!-- CARTEIRAS — patrimônio consolidado + carteiras (carteiras.js).
+                     Fica vazio/oculto se a migração de carteiras ainda não rodou. -->
+                <div id="carteirasPainel" class="carteiras-painel"></div>
+
                 <!-- GAMIFICAÇÃO — nível/XP, sequência e saúde do mês.
                      Preenchido por GamificacaoModule (gamificacao.js). -->
                 <div id="gamiHero" class="gami-hero" aria-live="polite"></div>
@@ -184,6 +181,7 @@
                 <div class="card">
                     <div class="card__header-row">
                         <h3>📊 Resumo do Período</h3>
+                        <span class="card__hint" id="dashPeriodoInfo"></span>
                     </div>
 
                     <!-- Filtro de período do Dashboard — mesma lógica do
@@ -201,6 +199,7 @@
                                 <option value="mes_passado">Mês passado</option>
                                 <option value="personalizado">Personalizado</option>
                             </select>
+                        <button type="button" class="btn-link-nova-categoria" onclick="showClientProfile()">📅 Meu dinheiro não entra dia 1? Configure seu ciclo</button>
                         </div>
                         <div class="history-filters__custom-range hidden" id="dashPeriodoPersonalizadoRow">
                             <div class="form-group">
@@ -316,6 +315,10 @@
                                 <option value="">Nenhuma meta</option>
                             </select>
                         </div>
+                        <div class="form-group hidden" id="transCarteiraWrapper">
+                            <label for="transCarteira">🏦 Em qual carteira?</label>
+                            <select id="transCarteira"></select>
+                        </div>
                         <div class="form-row">
                             <div class="form-group">
                                 <label>Valor (R$)</label>
@@ -342,6 +345,10 @@
                     <div class="form-group">
                         <label>Arquivo (.ofx ou .csv)</label>
                         <input type="file" id="importFileInput" accept=".ofx,.csv,text/csv,application/vnd.intu.qbo">
+                    </div>
+                    <div class="form-group hidden" id="importCarteiraWrapper">
+                        <label for="importCarteira">🏦 Esse extrato é de qual carteira?</label>
+                        <select id="importCarteira"></select>
                     </div>
                     <button type="button" class="btn btn--secondary" id="btnProcessarImportacao">Processar Arquivo</button>
 
@@ -541,54 +548,6 @@
 </div>
 
 <!-- ============================================================
-     MODAL: QUANDO VOCÊ RECEBE? (ciclo financeiro — ver app.js/ciclo.js)
-     Aparece no primeiro login depois da atualização; pode ser trocado
-     depois em Perfil → "Dia de recebimento".
-============================================================ -->
-<div id="modalCiclo" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="cicloTitulo">
-    <div class="modal__content ciclo-modal">
-        <div class="modal__body">
-            <div class="ciclo-modal__icone" aria-hidden="true">📅</div>
-            <h2 class="ciclo-modal__titulo" id="cicloTitulo">Quando você recebe?</h2>
-            <p class="ciclo-modal__texto">Assim o seu "mês" no app começa no dia em que o dinheiro entra — e os resumos, a nota e as metas ficam mais certos.</p>
-
-            <div class="ciclo-opcoes">
-                <label class="ciclo-opcao">
-                    <input type="radio" name="cicloTipo" value="dia_mes" checked>
-                    <span class="ciclo-opcao__corpo">
-                        <strong>Todo mês no mesmo dia</strong>
-                        <span>Ex.: salário todo dia 5 ou dia 27</span>
-                        <select id="cicloDiaMes" aria-label="Dia do mês em que recebe"></select>
-                    </span>
-                </label>
-                <label class="ciclo-opcao">
-                    <input type="radio" name="cicloTipo" value="dia_util">
-                    <span class="ciclo-opcao__corpo">
-                        <strong>Num dia útil</strong>
-                        <span>Ex.: "no 5º dia útil", como muitas empresas pagam</span>
-                        <select id="cicloDiaUtil" aria-label="Dia útil em que recebe"></select>
-                    </span>
-                </label>
-                <label class="ciclo-opcao">
-                    <input type="radio" name="cicloTipo" value="sem_dia_fixo">
-                    <span class="ciclo-opcao__corpo">
-                        <strong>Não tenho dia fixo</strong>
-                        <span>Autônomo, comissões, renda variável — usamos o mês normal</span>
-                    </span>
-                </label>
-            </div>
-
-            <p class="ciclo-modal__previa" id="cicloPrevia"></p>
-
-            <div class="ciclo-modal__acoes">
-                <button type="button" class="btn btn--secondary" id="btnCicloDepois" onclick="fecharPerguntaCiclo()">Responder depois</button>
-                <button type="button" class="btn btn--primary" id="btnCicloSalvar" onclick="salvarCicloCliente()">Salvar</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- ============================================================
      MODAL: EDITAR META
 ============================================================ -->
 <div id="modalEditarMeta" class="modal hidden">
@@ -643,20 +602,30 @@
                 <p style="color:var(--text-mid); font-size:12px; margin:15px 0 6px;">E-mail</p>
                 <p id="profileClientEmail" style="color:var(--accent); font-size:14px; word-break:break-all;"></p>
             </div>
-            <!-- Dia de recebimento (ciclo financeiro) -->
-            <div class="perfil-avisos">
-                <p class="perfil-avisos__titulo">📅 Dia de recebimento</p>
-                <p id="profileClienteCiclo" class="perfil-ciclo__texto">—</p>
-                <button type="button" class="btn btn--secondary perfil-avisos__btn" onclick="closeModal('clientProfileModal'); abrirPerguntaCiclo();">Alterar dia de recebimento</button>
+            <!-- Ciclo financeiro: em que dia o "mês" do cliente começa (ciclo.js) -->
+            <div class="perfil-avisos perfil-ciclo">
+                <p class="perfil-avisos__titulo">📅 Meu ciclo financeiro</p>
+                <p class="perfil-avisos__dica">Seu dinheiro não entra dia 1? Informe quando o seu mês começa (ex.: dia 27) e o painel passa a somar do dia 27 até o dia 26 do mês seguinte.</p>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Meu mês começa...</label>
+                    <select id="cicloTipo">
+                        <option value="dia_mes">num dia fixo do mês</option>
+                        <option value="dia_util">num dia útil do mês (ex.: 5º dia útil)</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label id="cicloDiaLabel">Dia do mês em que o ciclo começa</label>
+                    <input type="number" id="cicloDia" min="1" max="31" step="1" inputmode="numeric" placeholder="Ex.: 27">
+                </div>
+                <p class="perfil-avisos__dica" id="cicloPreview"></p>
+                <button type="button" class="btn btn--secondary perfil-avisos__btn" id="btnSalvarCiclo" onclick="handleSalvarCiclo()">Salvar meu ciclo</button>
             </div>
             <!-- Avisos e som (som.js / notifications.js) -->
             <div class="perfil-avisos">
                 <p class="perfil-avisos__titulo">🔔 Avisos</p>
                 <button type="button" class="btn btn--secondary perfil-avisos__btn" data-som-toggle aria-pressed="true">🔊 Som das notificações: ligado</button>
                 <button type="button" class="btn btn--secondary perfil-avisos__btn hidden" id="btnAtivarAvisos" onclick="NotificacoesModule.ativarAvisos()">🔔 Ativar avisos neste aparelho</button>
-                <button type="button" class="btn btn--secondary perfil-avisos__btn hidden" id="btnTestarAvisos" onclick="NotificacoesModule.testarAvisos()">📨 Enviar aviso de teste</button>
-                <p id="avisosDicaIOS" class="perfil-avisos__dica hidden"></p>
-                <p class="perfil-avisos__dica">Você recebe um aviso quando o consultor responde ou publica um planejamento, e um lembrete na sexta (e na segunda) só se a semana ainda não estiver em dia — mesmo com o app fechado.</p>
+                <p class="perfil-avisos__dica">Você recebe um aviso quando o consultor responde ou publica um planejamento, e no máximo um lembrete por semana.</p>
             </div>
             <button onclick="handleLogout()" class="btn btn--logout" style="width:100%; margin-top:20px;">🚪 Sair da conta</button>
         </div>
@@ -717,6 +686,10 @@
                     <option value="">Nenhuma meta</option>
                 </select>
             </div>
+            <div class="form-group hidden" id="editTransCarteiraWrapper">
+                <label for="editTransCarteira">🏦 Carteira</label>
+                <select id="editTransCarteira"></select>
+            </div>
             <div class="form-row">
                 <div class="form-group">
                     <label>Valor (R$)</label>
@@ -738,6 +711,7 @@
 ============================================================ -->
 <script src="config.js"></script>
 <script src="seguranca.js"></script>
+<script src="ciclo.js"></script>
 <script src="ui.js"></script>
 <script src="som.js"></script>
 <script src="ver-senha.js"></script>
@@ -748,7 +722,6 @@
 <script src="goals.js"></script>
 <script src="planning.js"></script>
 <script src="client.js"></script>
-<script src="ciclo.js"></script>
 <script src="app.js"></script>
 <script src="smart-input.js"></script>
 <script src="regras-aprendidas.js"></script>
@@ -756,9 +729,9 @@
 <script src="categoria-personalizada.js"></script>
 <script src="mensagens-cliente.js"></script>
 <script src="gamificacao.js"></script>
-<script src="push.js"></script>
 <script src="notifications.js"></script>
 <script src="tour.js"></script>
+<script src="carteiras.js"></script>
 
 </body>
 </html>

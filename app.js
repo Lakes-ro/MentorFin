@@ -39,6 +39,14 @@
  * (notifications.js) passou a ser chamado após o login/onboarding — o
  * arquivo existia mas não era carregado nem iniciado.
  *
+ * ATUALIZAÇÃO — CICLO FINANCEIRO PERSONALIZADO (ciclo.js):
+ * O cliente escolhe (Perfil → "Meu ciclo financeiro") em que dia o "mês"
+ * dele começa — ex.: recebe dia 27 → ciclo 27/05 a 26/06. Dashboard e
+ * Histórico ganham "Meu ciclo atual" e "Ciclo anterior" (só aparecem
+ * quando o ciclo não é o mês normal). O dashboard abre já no ciclo
+ * atual. Gravação via RPC definir_ciclo_financeiro (o cliente não tem
+ * UPDATE direto em `clientes`).
+ *
  * ATUALIZAÇÃO — CADASTRO E NOMES (phase1_identity_signup_and_names):
  * - Cadastro: o front só chama signUp com nome/apelido nos metadados.
  *   O trigger `on_auth_user_created` cria usuarios + perfil 'client' +
@@ -161,6 +169,135 @@ function nomeParaSaudacao(perfil) {
 // ROTEAMENTO PÓS-LOGIN (RBAC)
 // ================================================
 
+// ================================================
+// CICLO FINANCEIRO DO CLIENTE (dia em que o "mês" dele começa)
+// ================================================
+// Quem recebe dia 27 tem um mês de 27/05 a 26/06. O ciclo vem de
+// clientes.ciclo_tipo/ciclo_dia (ver ciclo.js). Padrão = mês-calendário
+// (nesse caso as opções "Meu ciclo" nem aparecem — "Este mês" já serve).
+const IDS_CICLO_PERFIL = { tipo: 'cicloTipo', dia: 'cicloDia', label: 'cicloDiaLabel', preview: 'cicloPreview' };
+let cicloClienteAtual = { tipo: 'dia_mes', dia: 1 };
+
+async function carregarCicloDoCliente(userId) {
+    try {
+        const { data, error } = await supabaseClient
+            .from(CONFIG.TABLES.CLIENTES)
+            .select('ciclo_tipo, ciclo_dia')
+            .eq('id', userId)
+            .maybeSingle();
+        if (error) throw error;
+        cicloClienteAtual = CicloModule.deLinha(data);
+    } catch (err) {
+        console.warn('⚠️ carregarCicloDoCliente (usando mês normal):', err.message);
+        cicloClienteAtual = CicloModule.normalizar(null);
+    }
+    return cicloClienteAtual;
+}
+
+function criarOpcaoDeCiclo(valor, texto) {
+    const o = document.createElement('option');
+    o.value = valor;
+    o.textContent = texto;
+    o.dataset.ciclo = '1';
+    return o;
+}
+
+/**
+ * (Re)monta as opções "Meu ciclo atual / Ciclo anterior" nos filtros de
+ * período do Dashboard e do Histórico. Só aparecem quando o ciclo do
+ * cliente não é o mês normal.
+ */
+function configurarOpcoesDeCiclo({ selecionarCicloAtual = false } = {}) {
+    const personalizado = !CicloModule.ehMesCalendario(cicloClienteAtual);
+    const hoje     = new Date();
+    const atual    = CicloModule.cicloPorOffset(cicloClienteAtual, hoje, 0);
+    const anterior = CicloModule.cicloPorOffset(cicloClienteAtual, hoje, -1);
+
+    [
+        { selectId: 'dashPeriodoRapido', linhaId: 'dashPeriodoPersonalizadoRow', padrao: 'mes' },
+        { selectId: 'histPeriodoRapido', linhaId: 'histPeriodoPersonalizadoRow', padrao: 'todos' }
+    ].forEach(({ selectId, linhaId, padrao }) => {
+        const sel = document.getElementById(selectId);
+        if (!sel) return;
+
+        const valorAntes = sel.value;
+        sel.querySelectorAll('option[data-ciclo]').forEach(o => o.remove());
+
+        if (personalizado) {
+            const a = criarOpcaoDeCiclo('ciclo', `Meu ciclo atual (${atual.rotuloCurto})`);
+            const b = criarOpcaoDeCiclo('ciclo_anterior', `Ciclo anterior (${anterior.rotuloCurto})`);
+            const ref = sel.querySelector('option[value="todos"]');
+            if (ref) ref.after(a, b); else sel.prepend(a, b);
+        }
+
+        const aindaExiste = [...sel.options].some(o => o.value === valorAntes);
+        sel.value = aindaExiste ? valorAntes : padrao;
+        if (selecionarCicloAtual && personalizado && selectId === 'dashPeriodoRapido') sel.value = 'ciclo';
+
+        document.getElementById(linhaId)?.classList.toggle('hidden', sel.value !== 'personalizado');
+    });
+}
+
+async function prepararCicloDoCliente(userId) {
+    await carregarCicloDoCliente(userId);
+    configurarOpcoesDeCiclo({ selecionarCicloAtual: true });
+}
+
+/** Período do ciclo no mesmo formato dos outros filtros, ou null se não for um filtro de ciclo. */
+function filtroDeCiclo(periodo) {
+    if (periodo !== 'ciclo' && periodo !== 'ciclo_anterior') return null;
+    const c = CicloModule.cicloPorOffset(cicloClienteAtual, new Date(), periodo === 'ciclo' ? 0 : -1);
+    return { dataInicio: c.inicio, dataFim: c.fim };
+}
+
+/** Mostra, ao lado de "Resumo do Período", as datas exatas que estão sendo somadas. */
+function atualizarInfoPeriodoDashboard() {
+    const el = document.getElementById('dashPeriodoInfo');
+    if (!el) return;
+    const f = getFiltroDashboardAtual();
+    const fmt = (iso) => iso ? iso.split('-').reverse().join('/') : '';
+    if (f.dataInicio && f.dataFim)  el.textContent = `${fmt(f.dataInicio)} a ${fmt(f.dataFim)}`;
+    else if (f.dataInicio)          el.textContent = `desde ${fmt(f.dataInicio)}`;
+    else if (f.dataFim)             el.textContent = `até ${fmt(f.dataFim)}`;
+    else                            el.textContent = 'desde o primeiro lançamento';
+}
+
+function preencherCamposDeCicloNoPerfil() {
+    CicloModule.ligarCampos(IDS_CICLO_PERFIL);
+    CicloModule.preencherCampos(IDS_CICLO_PERFIL, cicloClienteAtual);
+}
+
+async function handleSalvarCiclo() {
+    let cfg;
+    try {
+        cfg = CicloModule.lerCampos(IDS_CICLO_PERFIL);
+    } catch (e) {
+        UIModule.showError(e.message);
+        return;
+    }
+
+    const btn = document.getElementById('btnSalvarCiclo');
+    if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
+
+    try {
+        const { error } = await supabaseClient.rpc('definir_ciclo_financeiro', { p_tipo: cfg.tipo, p_dia: cfg.dia });
+        if (error) throw error;
+
+        cicloClienteAtual = cfg;
+        configurarOpcoesDeCiclo({ selecionarCicloAtual: true });
+        UIModule.closeModal('clientProfileModal');
+        UIModule.showSuccess(`Ciclo salvo: seu mês ${CicloModule.descricao(cfg)}.`);
+        await loadClientDashboard();
+    } catch (error) {
+        console.error('❌ handleSalvarCiclo:', error);
+        UIModule.showError(/definir_ciclo_financeiro|schema cache|does not exist/i.test(error.message || '')
+            ? 'Este recurso ainda não está disponível. Avise o seu consultor.'
+            : (error.message || 'Não foi possível salvar o ciclo.'));
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Salvar meu ciclo'; }
+    }
+}
+
 async function routeByRole(user, role) {
     if (role === 'admin') {
         window.location.href = 'admin.html';
@@ -175,18 +312,17 @@ async function routeByRole(user, role) {
     }
 
     await garantirClienteProvisionado(user);
+    await prepararCicloDoCliente(user.id);
 
     UIModule.setText('clientNameDisplay', nomeParaSaudacao(perfilUsuarioCache));
 
     ClientModule.setClientId(user.id);
-    const ciclo = await carregarCicloCliente(user.id);
     await populateCategorySelect();
     UIModule.showScreen('clientScreen');
     await loadClientDashboard();
 
-    // 1º) "Quando você recebe?" (ciclo financeiro) — só se ainda não respondeu.
-    // 2º) Tour de 4 passos (tour.js), depois que a pergunta fechar.
-    posLoginPerguntaETour(user.id, ciclo);
+    // Primeiro acesso: tour de 4 passos explicando o painel (tour.js)
+    if (typeof TourModule !== 'undefined') TourModule.mostrarSeNecessario(user.id);
 
     if (typeof MensagensModule !== 'undefined') {
         MensagensModule.inicializar(user.id).catch(() => {});
@@ -380,15 +516,15 @@ async function handleOnboarding(event) {
 
         await carregarPerfilUsuario(user.id);
         UIModule.showSuccess(`Bem-vindo, ${apelido}! 🎉`);
+        await prepararCicloDoCliente(user.id);
 
         ClientModule.setClientId(user.id);
         UIModule.setText('clientNameDisplay', apelido);
-        const ciclo = await carregarCicloCliente(user.id);
         await populateCategorySelect();
         UIModule.showScreen('clientScreen');
         await loadClientDashboard();
 
-        posLoginPerguntaETour(user.id, ciclo);
+        if (typeof TourModule !== 'undefined') TourModule.mostrarSeNecessario(user.id);
 
         if (typeof MensagensModule !== 'undefined') {
             MensagensModule.inicializar(user.id).catch(() => {});
@@ -474,6 +610,7 @@ async function loadClientDashboard() {
     try {
         await DashboardModule.renderClientDashboard(clientId, getFiltroDashboardAtual());
         preencherAnaliseCliente();
+        atualizarInfoPeriodoDashboard();
     } catch (error) {
         console.error('❌ loadClientDashboard (resumo/KPIs):', error);
     }
@@ -484,6 +621,16 @@ async function loadClientDashboard() {
         GoalsModule.renderGoals('clientMetasList', metasCliente);
     } catch (error) {
         console.error('❌ loadClientDashboard (metas):', error);
+    }
+
+    // Carteiras + patrimônio consolidado (carteiras.js). Vem ANTES do
+    // histórico porque ele mostra o nome da carteira de cada lançamento.
+    // Isolado: se a migração de carteiras ainda não rodou, o módulo se
+    // desativa sozinho e nada mais é afetado.
+    try {
+        if (typeof CarteirasModule !== 'undefined') await CarteirasModule.render(clientId);
+    } catch (error) {
+        console.error('❌ loadClientDashboard (carteiras):', error);
     }
 
     // Gamificação (nível, semanas em dia, saúde, missões, cofrinhos,
@@ -521,15 +668,13 @@ function getFiltroDashboardAtual() {
     const filtro  = {};
     const periodo = document.getElementById('dashPeriodoRapido')?.value || 'todos';
 
+    // Ciclo personalizado do cliente (ex.: 27/05 a 26/06)
+    const filtroCiclo = filtroDeCiclo(periodo);
+    if (filtroCiclo) return filtroCiclo;
+
     const hojeStr = typeof getDataDeHojeFormatoInput === 'function'
         ? getDataDeHojeFormatoInput()
         : formatarDataLocal(new Date());
-
-    if (periodo === 'ciclo_atual' || periodo === 'ciclo_anterior') {
-        const c = intervaloDoCiclo(periodo === 'ciclo_anterior' ? -1 : 0);
-        if (c) { filtro.dataInicio = c.inicio; filtro.dataFim = c.fim; }
-        return filtro;
-    }
 
     if (periodo === 'hoje') {
         filtro.dataInicio = hojeStr;
@@ -566,6 +711,7 @@ async function atualizarDashboardComFiltro() {
     if (!clientId) return;
     await DashboardModule.renderClientDashboard(clientId, getFiltroDashboardAtual());
     preencherAnaliseCliente();
+    atualizarInfoPeriodoDashboard();
 }
 
 function initDashboardFilters() {
@@ -606,15 +752,12 @@ function getFiltroHistoricoAtual() {
 
     if (tipo) filtro.type = tipo;
 
+    const filtroCiclo = filtroDeCiclo(periodo);
+    if (filtroCiclo) { Object.assign(filtro, filtroCiclo); return filtro; }
+
     const hojeStr = typeof getDataDeHojeFormatoInput === 'function'
         ? getDataDeHojeFormatoInput()
         : formatarDataLocal(new Date());
-
-    if (periodo === 'ciclo_atual' || periodo === 'ciclo_anterior') {
-        const c = intervaloDoCiclo(periodo === 'ciclo_anterior' ? -1 : 0);
-        if (c) { filtro.dataInicio = c.inicio; filtro.dataFim = c.fim; }
-        return filtro;
-    }
 
     if (periodo === 'hoje') {
         filtro.dataInicio = hojeStr;
@@ -800,6 +943,10 @@ async function abrirModalEditarTransacao(transactionId) {
     if (seletorMeta) seletorMeta.value = transacao.meta_id || '';
     await atualizarSeletorDeMeta('editTransCategory', 'editTransMetaWrapper', 'editTransMeta');
 
+    if (typeof CarteirasModule !== 'undefined') {
+        CarteirasModule.preencherSelect('editTransCarteira', 'editTransCarteiraWrapper', transacao.carteira_id);
+    }
+
     UIModule.openModal('editTransactionModal');
 }
 
@@ -893,6 +1040,7 @@ async function handleSalvarEdicaoTransacao() {
     const valor       = parseFloat(document.getElementById('editTransValue').value);
     const data        = document.getElementById('editTransDate').value;
     const metaId      = document.getElementById('editTransMeta')?.value || null;
+    const carteiraId  = document.getElementById('editTransCarteira')?.value || null;
 
     if (!categoriaId)          { UIModule.showError('Selecione uma categoria'); return; }
     if (!data)                 { UIModule.showError('A data é obrigatória'); return; }
@@ -912,7 +1060,8 @@ async function handleSalvarEdicaoTransacao() {
             data_competencia: data,
             descricao,
             tipo: cat.tipo,
-            meta_id: cat.grupo === 'investimento' ? (metaId || null) : null
+            meta_id: cat.grupo === 'investimento' ? (metaId || null) : null,
+            ...(carteiraId ? { carteira_id: carteiraId } : {})
         });
 
         fecharModalEdicaoTransacao();
@@ -941,7 +1090,12 @@ async function handleDeletarTransacaoRapido(transactionId) {
 }
 
 async function excluirTransacaoComConfirmacao(transactionId, aoConcluir) {
-    if (!confirm('Tem certeza que deseja excluir esta transação? Esta ação não pode ser desfeita.')) return;
+    const alvo = clienteTransacoesCache.find(t => t.id === transactionId);
+    const ehTransferencia = !!alvo?.transferencia_id;
+    const pergunta = ehTransferencia
+        ? 'Esta transação é uma transferência entre carteiras. Excluir também remove a outra ponta (saída e entrada saem juntas). Continuar?'
+        : 'Tem certeza que deseja excluir esta transação? Esta ação não pode ser desfeita.';
+    if (!confirm(pergunta)) return;
 
     try {
         await ClientModule.deleteTransaction(transactionId);
@@ -974,6 +1128,7 @@ async function handleAddTransaction(event) {
     const data        = document.getElementById('transDate').value;
     const descricao   = document.getElementById('transDescription').value;
     const metaId      = document.getElementById('transMeta')?.value || null;
+    const carteiraId  = document.getElementById('transCarteira')?.value || null;
 
     if (!categoriaId) { UIModule.showError('Selecione uma categoria'); return; }
     if (!data)         { UIModule.showError('A data é obrigatória'); return; }
@@ -990,7 +1145,10 @@ async function handleAddTransaction(event) {
             data_competencia: data,
             descricao,
             tipo: cat.tipo,
-            meta_id: cat.grupo === 'investimento' ? (metaId || null) : null
+            meta_id: cat.grupo === 'investimento' ? (metaId || null) : null,
+            // Sem carteira escolhida (ou migração pendente) o campo nem é enviado:
+            // o banco usa a carteira principal.
+            ...(carteiraId ? { carteira_id: carteiraId } : {})
         });
 
         if (typeof RegrasAprendidasModule !== 'undefined' && descricao.trim()) {
@@ -1007,6 +1165,9 @@ async function handleAddTransaction(event) {
         }
 
         event.target.reset();
+
+        // reset() volta o seletor de carteira ao primeiro item; restaura a última usada
+        if (typeof CarteirasModule !== 'undefined') CarteirasModule.atualizarSelects();
 
         if (typeof initForm === 'function') {
             initForm(true);
@@ -1104,166 +1265,10 @@ async function showClientProfile() {
     UIModule.setText('profileClientName',     perfil?.nome_completo || 'Nome não informado');
     UIModule.setText('profileClientNickname', perfil?.apelido       || '—');
     UIModule.setText('profileClientEmail',    user?.email           || '');
-    UIModule.setText('profileClienteCiclo', typeof CicloModule !== 'undefined'
-        ? CicloModule.descrever(cicloClienteAtual) : '—');
+    preencherCamposDeCicloNoPerfil();
     if (typeof NotificacoesModule !== 'undefined') NotificacoesModule.atualizarBotaoAvisos();
     if (typeof SomModule !== 'undefined') SomModule.atualizarBotoes();
     UIModule.openModal('clientProfileModal');
-}
-
-// ================================================
-// CICLO FINANCEIRO — "Quando você recebe?" (ciclo.js)
-// ================================================
-// O "mês" do cliente começa no dia em que ele recebe (ex.: dia 27 →
-// 27/09 a 26/10). Guardado em clientes.ciclo_tipo / ciclo_dia via a RPC
-// definir_ciclo_financeiro (MIGRACAO-notificacoes-ciclo.sql).
-// gamificacao.js lê a variável global cicloClienteAtual.
-
-let cicloClienteAtual = null;   // { tipo, dia } ou null (= mês normal)
-let cicloPerguntaAoFechar = null;
-
-async function carregarCicloCliente(userId) {
-    try {
-        const { data, error } = await supabaseClient
-            .from(CONFIG.TABLES.CLIENTES)
-            .select('ciclo_tipo, ciclo_dia, ciclo_definido_em')
-            .eq('id', userId)
-            .maybeSingle();
-        if (error) throw error;
-        cicloClienteAtual = (typeof CicloModule !== 'undefined' && data?.ciclo_definido_em)
-            ? CicloModule.deLinha(data) : null;
-        configurarFiltrosDeCiclo();
-        return { definido: !!data?.ciclo_definido_em, suportado: true };
-    } catch (err) {
-        // Coluna ainda não existe (migração não rodada): segue com mês normal, sem perguntar.
-        console.warn('⚠️ carregarCicloCliente:', err.message);
-        cicloClienteAtual = null;
-        return { definido: true, suportado: false };
-    }
-}
-
-function posLoginPerguntaETour(userId, ciclo) {
-    const tour = () => { if (typeof TourModule !== 'undefined') TourModule.mostrarSeNecessario(userId); };
-    let adiadoAte = 0;
-    try { adiadoAte = Number(localStorage.getItem(`mentorfin_ciclo_adiado_${userId}`) || 0); } catch (_) {}
-    if (ciclo && ciclo.suportado && !ciclo.definido && typeof CicloModule !== 'undefined' && Date.now() > adiadoAte) {
-        abrirPerguntaCiclo({ primeiraVez: true, aoFechar: tour, userId });
-    } else {
-        tour();
-    }
-}
-
-function cicloPersonalizado() {
-    return typeof CicloModule !== 'undefined' && cicloClienteAtual && !CicloModule.ehMesCalendario(cicloClienteAtual);
-}
-
-function intervaloDoCiclo(offset) {
-    if (typeof CicloModule === 'undefined') return null;
-    return CicloModule.cicloPorOffset(cicloClienteAtual || { tipo: 'dia_mes', dia: 1 }, new Date(), offset);
-}
-
-/** Cliente com ciclo próprio ganha "Este ciclo"/"Ciclo anterior" nos filtros; o painel abre no ciclo atual. */
-function configurarFiltrosDeCiclo() {
-    [['dashPeriodoRapido', true], ['histPeriodoRapido', false]].forEach(([id, selecionar]) => {
-        const sel = document.getElementById(id);
-        if (!sel) return;
-        sel.querySelectorAll('option[data-ciclo]').forEach(o => o.remove());
-        if (!cicloPersonalizado()) {
-            if (selecionar && !sel.value) sel.value = 'mes';
-            return;
-        }
-        const atual = intervaloDoCiclo(0), anterior = intervaloDoCiclo(-1);
-        const opt = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; o.dataset.ciclo = '1'; return o; };
-        const ref = sel.querySelector('option[value="todos"]');
-        const novas = [opt('ciclo_atual', `Este ciclo (${atual.rotulo})`), opt('ciclo_anterior', `Ciclo anterior (${anterior.rotulo})`)];
-        if (ref) ref.after(...novas); else sel.prepend(...novas);
-        if (selecionar) sel.value = 'ciclo_atual';
-        sel.closest('.history-filters')?.querySelector('.history-filters__custom-range')?.classList.add('hidden');
-    });
-}
-
-let cicloAdiarChave = null;   // "Responder depois" na 1ª vez: pergunta de novo em 3 dias
-
-function abrirPerguntaCiclo({ primeiraVez = false, aoFechar = null, userId = null } = {}) {
-    const modal = document.getElementById('modalCiclo');
-    if (!modal || typeof CicloModule === 'undefined') { if (aoFechar) aoFechar(); return; }
-    cicloPerguntaAoFechar = aoFechar;
-    cicloAdiarChave = primeiraVez && userId ? `mentorfin_ciclo_adiado_${userId}` : null;
-
-    const dias = document.getElementById('cicloDiaMes');
-    if (dias && !dias.options.length) {
-        for (let i = 1; i <= 31; i++) dias.add(new Option(`Dia ${i}`, i));
-        const uteis = document.getElementById('cicloDiaUtil');
-        for (let i = 1; i <= 10; i++) uteis.add(new Option(`${i}º dia útil`, i));
-        modal.querySelectorAll('input[name="cicloTipo"], #cicloDiaMes, #cicloDiaUtil')
-            .forEach(el => el.addEventListener('change', atualizarPreviaCiclo));
-        modal.querySelectorAll('#cicloDiaMes, #cicloDiaUtil').forEach(el => el.addEventListener('focus', () => {
-            const alvo = el.id === 'cicloDiaMes' ? 'dia_mes' : 'dia_util';
-            const r = modal.querySelector(`input[name="cicloTipo"][value="${alvo}"]`);
-            if (r && !r.checked) { r.checked = true; atualizarPreviaCiclo(); }
-        }));
-    }
-
-    const atual = cicloClienteAtual || { tipo: 'dia_mes', dia: 5 };
-    const radio = modal.querySelector(`input[name="cicloTipo"][value="${atual.tipo}"]`);
-    if (radio) radio.checked = true;
-    if (atual.tipo === 'dia_mes') document.getElementById('cicloDiaMes').value = atual.dia;
-    if (atual.tipo === 'dia_util') document.getElementById('cicloDiaUtil').value = atual.dia;
-
-    document.getElementById('btnCicloDepois').textContent = primeiraVez ? 'Responder depois' : 'Cancelar';
-    atualizarPreviaCiclo();
-    UIModule.openModal('modalCiclo');
-}
-
-function lerCicloDoModal() {
-    const tipo = document.querySelector('#modalCiclo input[name="cicloTipo"]:checked')?.value || 'dia_mes';
-    const dia = tipo === 'dia_mes' ? parseInt(document.getElementById('cicloDiaMes').value, 10)
-              : tipo === 'dia_util' ? parseInt(document.getElementById('cicloDiaUtil').value, 10) : 1;
-    return CicloModule.normalizar({ tipo, dia });
-}
-
-function atualizarPreviaCiclo() {
-    const el = document.getElementById('cicloPrevia');
-    if (!el) return;
-    const cfg = lerCicloDoModal();
-    const c = CicloModule.cicloPorOffset(cfg, new Date(), 0);
-    el.textContent = CicloModule.ehMesCalendario(cfg)
-        ? `Seu mês vai do dia 1 ao último dia (${c.rotulo}).`
-        : `Seu mês atual vai de ${c.rotulo}. Os resumos, a nota e as metas passam a seguir essas datas.`;
-}
-
-function fecharPerguntaCiclo({ salvou = false } = {}) {
-    if (!salvou && cicloAdiarChave) {
-        try { localStorage.setItem(cicloAdiarChave, String(Date.now() + 3 * 864e5)); } catch (_) {}
-    }
-    cicloAdiarChave = null;
-    UIModule.closeModal('modalCiclo');
-    const cb = cicloPerguntaAoFechar;
-    cicloPerguntaAoFechar = null;
-    if (typeof cb === 'function') cb();
-}
-
-async function salvarCicloCliente() {
-    const cfg = lerCicloDoModal();
-    const btn = document.getElementById('btnCicloSalvar');
-    if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
-    try {
-        const { error } = await supabaseClient.rpc('definir_ciclo_financeiro', { p_tipo: cfg.tipo, p_dia: cfg.dia });
-        if (error) throw error;
-        cicloClienteAtual = cfg;
-        configurarFiltrosDeCiclo();
-        UIModule.setText('profileClienteCiclo', CicloModule.descrever(cfg));
-        UIModule.showSuccess('📅 Pronto! Seu mês agora segue o dia em que você recebe.');
-        fecharPerguntaCiclo({ salvou: true });
-        await loadClientDashboard();
-    } catch (err) {
-        console.error('❌ salvarCicloCliente:', err.message);
-        UIModule.showError(/function|does not exist|schema cache/i.test(err.message || '')
-            ? 'Este recurso ainda não está ativo. Avise o seu consultor.'
-            : 'Não foi possível salvar. Tente de novo.');
-    } finally {
-        if (btn) { btn.disabled = false; btn.textContent = 'Salvar'; }
-    }
 }
 
 // ================================================

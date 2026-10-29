@@ -48,9 +48,6 @@
  *  - Ao escolher a categoria, o selo de origem vira "Escolhida por você".
  *  - Mudar o Tipo da linha limpa a categoria se ela for do outro tipo.
  *  - Linhas ainda sem categoria ganham uma marca lateral âmbar.
- *  - Aviso "⚠️ Parece já lançada": linha do extrato com mesma data, valor
- *    e tipo de um lançamento feito à mão vem DESMARCADA (marque se for
- *    outro gasto). Lançamentos manuais sem `origem` também contam.
  */
 
 // ── Estado do módulo ────────────────────────────────────────────
@@ -431,21 +428,8 @@ async function processarArquivoImportacao() {
             if (!l.importHash) l.importHash = gerarImportHashCsv(l.data, l.valorAbs, l.descricao);
         });
 
-        // Lançamentos IDÊNTICOS no mesmo arquivo (dois cafés de R$ 5 no mesmo
-        // dia) geravam o mesmo hash e o segundo era descartado como "duplicado".
-        // A 1ª ocorrência mantém o hash de sempre (compatível com o que já foi
-        // importado); as seguintes ganham "#2", "#3"...
-        const ocorrenciasNoArquivo = new Map();
-        linhasValidas.forEach(l => {
-            const n = (ocorrenciasNoArquivo.get(l.importHash) || 0) + 1;
-            ocorrenciasNoArquivo.set(l.importHash, n);
-            if (n > 1) l.importHash = `${l.importHash}#${n}`;
-        });
-
         const hashesDoArquivo = linhasValidas.map(l => l.importHash);
         hashesJaImportadosCache = await buscarHashesJaImportados(clienteId, hashesDoArquivo);
-        const manuaisParaComparar = await buscarLancamentosManuaisParaComparar(clienteId, linhasValidas);
-        let totalPossiveisDuplicatasManuais = 0;
 
         linhasImportacao = [];
         let totalPreClassificadas = 0;
@@ -453,19 +437,6 @@ async function processarArquivoImportacao() {
 
         for (const linha of linhasValidas) {
             const duplicada = hashesJaImportadosCache.has(linha.importHash);
-
-            // Já existe um lançamento MANUAL com a mesma data, valor e tipo?
-            // Cada manual "cobre" no máximo uma linha do extrato.
-            let possivelDuplicataManual = false;
-            if (!duplicada) {
-                const chaveManual = chaveComparacaoManual(linha.data, linha.valorAbs, linha.tipo);
-                const restantes = manuaisParaComparar.get(chaveManual) || 0;
-                if (restantes > 0) {
-                    manuaisParaComparar.set(chaveManual, restantes - 1);
-                    possivelDuplicataManual = true;
-                    totalPossiveisDuplicatasManuais++;
-                }
-            }
 
             // Regras Nubank (RDB, fatura, reembolso, "Compra no débito -")
             const valorComSinal   = linha.tipo === 'despesa' ? -linha.valorAbs : linha.valorAbs;
@@ -496,8 +467,7 @@ async function processarArquivoImportacao() {
                 termoCorrespondente: classificacao.termoCorrespondente || null,
                 importHash:  linha.importHash,
                 duplicada,
-                possivelDuplicataManual,
-                incluir:     !duplicada && !possivelDuplicataManual,
+                incluir:     !duplicada,
                 // Só vira regra aprendida o que o USUÁRIO escolheu/corrigiu na tabela —
                 // aceitar uma sugestão automática não ensina nada ao sistema.
                 decididaPeloUsuario: false
@@ -515,7 +485,6 @@ async function processarArquivoImportacao() {
         if (totalPessoas > 0) mensagem += ` ${totalPessoas} são transferências/PIX para pessoas — escolha a categoria de cada uma (👤).`;
         if (totalAproximadas > 0) mensagem += ` ${totalAproximadas} tiveram sugestão APROXIMADA (🔎) — vale a pena conferir essas antes de confirmar.`;
         if (totalDuplicadas > 0)   mensagem += ` ${totalDuplicadas} já tinham sido importado(s) antes e vêm desmarcado(s) por padrão.`;
-        if (totalPossiveisDuplicatasManuais > 0) mensagem += ` ${totalPossiveisDuplicatasManuais} parecem gastos que você já lançou à mão (mesma data e valor) — vêm desmarcados; marque se forem gastos diferentes.`;
         if (totalSemCategoria > 0) mensagem += ` ${totalSemCategoria} ainda estão sem categoria (marcadas com uma barra âmbar) — clique no campo Categoria e digite para buscar.`;
         exibirStatusImportacao(mensagem, false);
 
@@ -525,40 +494,6 @@ async function processarArquivoImportacao() {
     } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Processar Arquivo'; }
     }
-}
-
-function chaveComparacaoManual(data, valor, tipo) {
-    return `${String(data).slice(0, 10)}|${Math.abs(parseFloat(valor) || 0).toFixed(2)}|${tipo}`;
-}
-
-/**
- * Lançamentos feitos À MÃO (pelo cliente ou pelo admin) no intervalo do
- * arquivo → Map "data|valor|tipo" → quantidade. Serve só para AVISAR de
- * possível duplicata; se a consulta falhar, a importação segue normal.
- */
-async function buscarLancamentosManuaisParaComparar(clienteId, linhas) {
-    const mapa = new Map();
-    if (!clienteId || !linhas.length) return mapa;
-    try {
-        const datas = linhas.map(l => l.data).sort();
-        const { data, error } = await supabaseClient
-            .from('transacoes')
-            .select('data_competencia, valor, tipo')
-            .eq('client_id', clienteId)
-            // Lançamento feito à mão pelo cliente pode vir sem `origem` (app.js
-            // não envia o campo) — por isso o null também entra na comparação.
-            .or('origem.is.null,origem.in.(manual,lancamento_admin)')
-            .gte('data_competencia', datas[0])
-            .lte('data_competencia', datas[datas.length - 1]);
-        if (error) throw error;
-        (data || []).forEach(t => {
-            const k = chaveComparacaoManual(t.data_competencia, t.valor, t.tipo);
-            mapa.set(k, (mapa.get(k) || 0) + 1);
-        });
-    } catch (err) {
-        console.warn('⚠️ Não foi possível comparar com lançamentos manuais — prosseguindo sem esse aviso:', err.message);
-    }
-    return mapa;
 }
 
 async function buscarHashesJaImportados(clienteId, hashes) {
@@ -884,14 +819,11 @@ const ORIGEM_BADGE_LABEL = {
  */
 function montarBadgeOrigemHtml(linha) {
     const badge = ORIGEM_BADGE_LABEL[linha.origem] || ORIGEM_BADGE_LABEL.manual;
-    const aviso = linha.possivelDuplicataManual
-        ? `<br><span class="import-review__origem-badge import-review__origem-badge--manual" title="Já existe um lançamento manual com a mesma data e valor. Marque a caixa só se for outro gasto.">⚠️ Parece já lançada</span>`
-        : '';
     if (linha.termoCorrespondente) {
         return `<button type="button" class="import-review__origem-badge import-review__origem-badge--${badge.classe} import-review__origem-badge--clicavel"
-                       data-termo="${escaparHtmlAtributo(linha.termoCorrespondente)}" title="Toque para ver o termo reconhecido">${badge.texto} 🛈</button>${aviso}`;
+                       data-termo="${escaparHtmlAtributo(linha.termoCorrespondente)}" title="Toque para ver o termo reconhecido">${badge.texto} 🛈</button>`;
     }
-    return `<span class="import-review__origem-badge import-review__origem-badge--${badge.classe}">${badge.texto}</span>${aviso}`;
+    return `<span class="import-review__origem-badge import-review__origem-badge--${badge.classe}">${badge.texto}</span>`;
 }
 
 function montarComboCategoriaHtml(linha) {
@@ -1128,6 +1060,10 @@ async function confirmarImportacao() {
     if (btn) { btn.disabled = true; btn.textContent = 'Importando...'; }
 
     try {
+        // Carteira de destino do extrato (seletor #importCarteira existe só no painel do
+        // cliente e só aparece com 2+ carteiras). Sem ele — ex.: admin — o banco usa a principal.
+        const carteiraId = document.getElementById('importCarteira')?.value || null;
+
         const payload = linhasParaSalvar.map(linha => ({
             client_id:        clientId,
             categoria_id:     linha.categoriaId,
@@ -1136,7 +1072,8 @@ async function confirmarImportacao() {
             descricao:        linha.descricao,
             tipo:             linha.tipo,
             origem:           'importacao',
-            import_hash:      linha.importHash
+            import_hash:      linha.importHash,
+            ...(carteiraId ? { carteira_id: carteiraId } : {})
         }));
 
         const { inseridas, duplicadasNoMomentoDeSalvar } = await salvarLoteComTratamentoDeDuplicados(payload);

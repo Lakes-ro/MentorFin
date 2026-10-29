@@ -1,324 +1,252 @@
 /**
- * NOTIFICATIONS.JS — Avisos do cliente: lembrete semanal, notificações
- * do sistema e Web Push
- * ================================================
- * Padrão: script global. Sem import/export.
- * Depende de: supabaseClient, UIModule; usa SomModule (som.js) e
- * GamificacaoModule (gamificacao.js) quando existirem.
- * Iniciado por app.js (routeByRole / handleOnboarding):
- *     NotificacoesModule.inicializar(clienteId)
+ * NOTIFICATIONS.JS v2.0
+ * ✅ v1.0 (mantido): aviso de venda em tempo real pro vendedor
+ *    (order_items INSERT) com toast + som + selo no botão BI.
+ * ✅ v2.0 NOVO:
+ *    • Escuta a tabela vendor_notifications (avisos enviados pelo
+ *      Admin / sistema ao vendedor — ex: produto esgotado, bloqueio)
+ *      em tempo real, e também mostra os avisos não lidos ao entrar.
+ *      Antes essa tabela estava no Realtime mas nenhum código a lia.
+ *    • Fallback na venda: se o produto não estiver na lista local
+ *      (manageProducts ainda carregando), consulta o dono no banco —
+ *      antes a venda passava batido nesse caso.
  *
- * REVISÃO (out/2026):
- * - Este arquivo NÃO estava carregado no index.html/client.html nem era
- *   chamado pelo app.js — nenhum lembrete chegava a ninguém. Agora está.
- * - Lembrete deixou de ser "3 dias sem lançar" (cobrava registro em dia
- *   sem gasto). Passa a seguir a regra semanal da gamificação:
- *     · sexta a domingo, se a semana atual não está em dia;
- *     · segunda e terça, se a semana passada ficou sem registro (ainda
- *       dá para marcar como revisada).
- *   No máximo um lembrete por dia.
- * - Service worker registrado com caminho RELATIVO (funciona também
- *   quando o site fica numa subpasta, como no GitHub Pages).
- * - Convite de notificações: pede uma vez; se a pessoa disser "Agora
- *   não", só volta a perguntar depois de 14 dias.
- * - Novo: aviso (toast + som) quando o consultor publica um planejamento.
- *
- * WEB PUSH COM O APP FECHADO (out/2026):
- *    A inscrição do aparelho fica em push.js (PushModule) e é salva na
- *    tabela push_inscricoes. Quem envia é a função "mentorfin-avisos" do
- *    Supabase, agendada pelo banco (sexta 18h e segunda 9h). Ver
- *    MIGRACAO-notificacoes-ciclo.sql.
+ * LIMITAÇÃO: não é push de celular — só funciona com o site aberto.
  */
 
-/** Frases do lembrete semanal (in-app e push) — edite à vontade. */
-const FRASES_LEMBRETE = [
-    { title: 'MentorFin 📅', body: 'Seus gastos desta semana ainda não foram lançados. Se não teve nenhum, é só tocar em “Não tive gastos”.' },
-    { title: 'MentorFin 📥', body: 'Que tal importar o extrato da semana? Leva um minuto e deixa tudo em dia.' },
-    { title: 'MentorFin 🔥', body: 'Falta só esta semana para manter sua sequência. Lance seus gastos!' },
-    { title: 'MentorFin 🎯', body: 'Fim de semana chegando: confira quanto foi com lazer, delivery e compras esta semana.' },
-];
+const Notifications = {
+    channel: null,
+    vendorChannel: null,
+    unseenCount: 0,
 
-const LEMBRETE_PASSADA = {
-    title: 'MentorFin 📅',
-    body:  'A semana passada ficou sem lançamentos. Ainda dá tempo: lance os gastos ou toque em “Não tive gastos” no painel.'
+    init() {
+        try {
+            if (!window.APP?.auth?.isSeller?.()) return;
+            if (!window._supabase) return;
+
+            this._subscribeRealtime();
+            this._subscribeVendorNotifications();
+            this._loadUnreadVendorNotifications();
+            log('🔔 Notificações de venda ativadas', 'info');
+        } catch (err) {
+            log(`⚠️ Erro ao iniciar notificações: ${err.message}`, 'warning');
+        }
+    },
+
+    _subscribeRealtime() {
+        if (this.channel) return;
+
+        this.channel = _supabase
+            .channel('vendas-em-tempo-real')
+            .on(
+                'postgres_changes',
+                { event: 'INSERT', schema: 'public', table: 'order_items' },
+                (payload) => this._handleNewItem(payload.new)
+            )
+            .subscribe((status) => {
+                if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                    log(`⚠️ Realtime (vendas): ${status}`, 'warning');
+                }
+            });
+    },
+
+    async _handleNewItem(item) {
+        try {
+            const myId = window.APP?.auth?.userId;
+            if (!myId) return;
+
+            const myProducts = window.APP?.products?.manageProducts || [];
+            let product = myProducts.find(p => p.id === item.product_id);
+
+            // Fallback: lista local ainda não tem o produto
+            if (!product) {
+                const { data } = await _supabase
+                    .from('products')
+                    .select('id, name, owner_id')
+                    .eq('id', item.product_id)
+                    .maybeSingle();
+                product = data || null;
+            }
+
+            if (!product || product.owner_id !== myId) return;
+
+            this._showSaleToast(product.name, item.quantity || 1, item.unit_price || 0);
+            this._bumpBadge();
+        } catch (err) {
+            log(`⚠️ Erro ao processar aviso de venda: ${err.message}`, 'warning');
+        }
+    },
+
+    // ===== AVISOS DO ADMIN / SISTEMA (vendor_notifications) =====
+
+    _subscribeVendorNotifications() {
+        if (this.vendorChannel) return;
+        const myId = window.APP?.auth?.userId;
+        if (!myId) return;
+
+        this.vendorChannel = _supabase
+            .channel('avisos-do-vendedor')
+            .on(
+                'postgres_changes',
+                { event: 'INSERT', schema: 'public', table: 'vendor_notifications', filter: `vendor_id=eq.${myId}` },
+                (payload) => this._handleVendorNotification(payload.new)
+            )
+            .subscribe((status) => {
+                if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                    log(`⚠️ Realtime (avisos): ${status}`, 'warning');
+                }
+            });
+    },
+
+    async _loadUnreadVendorNotifications() {
+        try {
+            const myId = window.APP?.auth?.userId;
+            if (!myId) return;
+
+            const { data, error } = await _supabase
+                .from('vendor_notifications')
+                .select('id, title, message, product_id, created_at')
+                .eq('vendor_id', myId)
+                .is('read_at', null)
+                .order('created_at', { ascending: false })
+                .limit(5);
+
+            if (error) throw error;
+
+            (data || []).forEach((n, i) => {
+                setTimeout(() => this._handleVendorNotification(n), i * 900);
+            });
+        } catch (err) {
+            log(`⚠️ Erro ao carregar avisos não lidos: ${err.message}`, 'warning');
+        }
+    },
+
+    _handleVendorNotification(n) {
+        try {
+            if (!n) return;
+            this._showVendorToast(n);
+            this._markAsRead(n.id);
+        } catch (err) {
+            log(`⚠️ Erro ao exibir aviso: ${err.message}`, 'warning');
+        }
+    },
+
+    async _markAsRead(id) {
+        if (!id) return;
+        try {
+            await _supabase
+                .from('vendor_notifications')
+                .update({ read_at: new Date().toISOString() })
+                .eq('id', id)
+                .is('read_at', null);
+        } catch (err) {
+            log(`⚠️ Erro ao marcar aviso como lido: ${err.message}`, 'warning');
+        }
+    },
+
+    _getToastContainer() {
+        let container = document.getElementById('cart-toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'cart-toast-container';
+            document.body.appendChild(container);
+        }
+        return container;
+    },
+
+    _showVendorToast(n) {
+        const container = this._getToastContainer();
+        const esc = window.escapeHtml || ((s) => s);
+
+        const toast = document.createElement('div');
+        toast.className = 'cart-toast mod-toast mod-toast-flagged';
+        toast.innerHTML = `
+            <i data-lucide="bell-ring" class="cart-toast-icon"></i>
+            <span>🔔 ${esc(n.title || 'Aviso')}${n.message ? ' — ' + esc(n.message) : ''}</span>
+        `;
+        toast.addEventListener('click', () => {
+            if (n.product_id) window.APP?.navigation?.showTab('seller');
+        });
+        container.appendChild(toast);
+
+        window.playNotificationSound?.('moderation');
+        if (window.lucide) lucide.createIcons();
+
+        requestAnimationFrame(() => toast.classList.add('cart-toast-show'));
+
+        setTimeout(() => {
+            toast.classList.remove('cart-toast-show');
+            toast.classList.add('cart-toast-hide');
+            setTimeout(() => toast.remove(), 300);
+        }, 8000);
+    },
+
+    // ===== VENDA =====
+
+    _showSaleToast(name, qty, unitPrice) {
+        const container = this._getToastContainer();
+
+        const total = (unitPrice || 0) * (qty || 1);
+        const safeName = window.escapeHtml ? window.escapeHtml(name) : name;
+        const toast = document.createElement('div');
+        toast.className = 'cart-toast sale-toast';
+        toast.innerHTML = `
+            <i data-lucide="party-popper" class="cart-toast-icon"></i>
+            <span>🎉 Venda! ${qty > 1 ? qty + 'x ' : ''}${safeName} — R$ ${window.formatBRL(total)} · confirme em até 2h</span>
+        `;
+        container.appendChild(toast);
+
+        window.playNotificationSound?.('sale');
+
+        if (window.lucide) lucide.createIcons();
+
+        requestAnimationFrame(() => toast.classList.add('cart-toast-show'));
+
+        setTimeout(() => {
+            toast.classList.remove('cart-toast-show');
+            toast.classList.add('cart-toast-hide');
+            setTimeout(() => toast.remove(), 300);
+        }, 4500);
+    },
+
+    _bumpBadge() {
+        this.unseenCount++;
+        this._renderBadge();
+    },
+
+    _renderBadge() {
+        ['bi-nav-btn', 'bnav-bi'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (!btn) return;
+
+            let badge = btn.querySelector('.sale-badge');
+            if (!badge) {
+                badge = document.createElement('span');
+                badge.className = 'sale-badge';
+                btn.appendChild(badge);
+            }
+
+            badge.textContent = this.unseenCount > 9 ? '9+' : String(this.unseenCount);
+            badge.style.display = this.unseenCount > 0 ? 'flex' : 'none';
+        });
+    },
+
+    clearUnseen() {
+        this.unseenCount = 0;
+        this._renderBadge();
+    },
+
+    teardown() {
+        if (this.channel) {
+            _supabase.removeChannel(this.channel);
+            this.channel = null;
+        }
+        if (this.vendorChannel) {
+            _supabase.removeChannel(this.vendorChannel);
+            this.vendorChannel = null;
+        }
+        this.unseenCount = 0;
+    }
 };
 
-const CONVITE_PAUSA_DIAS = 14;
-
-function sortearFrase() {
-    return FRASES_LEMBRETE[Math.floor(Math.random() * FRASES_LEMBRETE.length)];
-}
-
-// ══════════════════════════════════════════════════════════════
-// MÓDULO PRINCIPAL
-// ══════════════════════════════════════════════════════════════
-const NotificacoesModule = (() => {
-
-    let clienteAtual   = null;
-    let canalPlanejamento = null;
-
-    const lerLS = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
-    const gravarLS = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} };
-
-    // ─────────────────────────────────────────────────────────
-    // LEMBRETE SEMANAL (chamado pela gamificação depois de calcular)
-    // ─────────────────────────────────────────────────────────
-    function lembreteSemanal(estado) {
-        if (!estado || !clienteAtual) return;
-        const hoje = new Date();
-        const chaveHoje = `mentorfin_lembrete_${clienteAtual}`;
-        const diaKey = hoje.toISOString().slice(0, 10);
-        if (lerLS(chaveHoje) === diaKey) return; // já lembrou hoje
-
-        const dow = hoje.getDay(); // 0 dom … 6 sáb
-        let frase = null;
-        if (!estado.semanaAtualEmDia && (dow === 5 || dow === 6 || dow === 0)) frase = sortearFrase();
-        else if (estado.podeMarcarSemanaPassada && (dow === 1 || dow === 2)) frase = LEMBRETE_PASSADA;
-        if (!frase) return;
-
-        gravarLS(chaveHoje, diaKey);
-        setTimeout(() => exibirToastLembrete(frase.body), 2800);
-    }
-
-    function exibirToastLembrete(mensagem, icone = '📅') {
-        if (document.getElementById('mf-lembrete-inapp')) return;
-
-        const el = document.createElement('div');
-        el.id = 'mf-lembrete-inapp';
-        el.setAttribute('role', 'status');
-        el.style.cssText = `
-            position:fixed;bottom:calc(80px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
-            width:calc(100% - 32px);max-width:440px;
-            background:rgba(26,26,46,.97);backdrop-filter:blur(12px);
-            border:1px solid rgba(100,149,255,.3);border-radius:14px;
-            padding:14px 16px;z-index:9998;
-            box-shadow:0 8px 32px rgba(0,0,0,.55);
-            display:flex;align-items:center;gap:12px;
-            font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;
-            animation:slideUp .3s ease;
-        `;
-        const texto = document.createElement('p');
-        texto.style.cssText = 'margin:0;font-size:13px;color:#e0e0e0;line-height:1.45;flex:1';
-        texto.textContent = mensagem;
-        el.innerHTML = `<span style="font-size:22px;flex-shrink:0">${icone}</span>`;
-        el.appendChild(texto);
-        const fechar = document.createElement('button');
-        fechar.setAttribute('aria-label', 'Fechar lembrete');
-        fechar.textContent = '✕';
-        fechar.style.cssText = 'background:none;border:none;color:#a0a0b0;font-size:20px;cursor:pointer;padding:0 4px;flex-shrink:0;line-height:1;';
-        fechar.addEventListener('click', () => el.remove());
-        el.appendChild(fechar);
-
-        document.body.appendChild(el);
-        setTimeout(() => el.remove(), icone === '📅' ? 12000 : 25000);
-    }
-
-    // ─────────────────────────────────────────────────────────
-    // PLANEJAMENTO NOVO → aviso com som (Realtime em `planejamentos`;
-    // ver MIGRACAO-gamificacao-v2.sql, parte 3)
-    // ─────────────────────────────────────────────────────────
-    function ligarAvisoPlanejamento(clienteId) {
-        if (canalPlanejamento || typeof supabaseClient === 'undefined' || !supabaseClient) return;
-        canalPlanejamento = supabaseClient
-            .channel(`planejamentos-cliente-${clienteId}`)
-            .on('postgres_changes', {
-                event: 'INSERT', schema: 'public', table: 'planejamentos', filter: `client_id=eq.${clienteId}`
-            }, (payload) => {
-                const titulo = payload.new?.titulo || 'Novo planejamento';
-                if (typeof UIModule !== 'undefined') UIModule.showMessage(`📋 Seu consultor publicou um planejamento: ${titulo}`, 'success', 6000);
-                if (typeof SomModule !== 'undefined') {
-                    SomModule.tocar('notificacao');
-                    SomModule.avisoSistema('📋 Novo planejamento', titulo, 'mentorfin-planejamento');
-                }
-                if (typeof loadClientPlanning === 'function') loadClientPlanning();
-            })
-            .subscribe();
-    }
-
-    // ─────────────────────────────────────────────────────────
-    // PERMISSÃO + SERVICE WORKER + WEB PUSH
-    // ─────────────────────────────────────────────────────────
-    function conviteEmPausa() {
-        const ate = Number(lerLS('mentorfin_convite_notif_ate') || 0);
-        return Date.now() < ate;
-    }
-
-    /** Espera o tour do primeiro acesso fechar (até 2 min) antes de convidar. */
-    async function esperarTourFechar() {
-        for (let i = 0; i < 240; i++) {
-            const tour = document.getElementById('modalTour');
-            if (!tour || tour.classList.contains('hidden')) return;
-            await new Promise(r => setTimeout(r, 500));
-        }
-    }
-
-    async function mostrarBannerConvite() {
-        await esperarTourFechar();
-        return new Promise(resolve => {
-            if (!('Notification' in window) || Notification.permission !== 'default' || conviteEmPausa()) { resolve(false); return; }
-
-            const banner = document.createElement('div');
-            banner.id = 'mf-notif-banner';
-            banner.style.cssText = `
-                position:fixed;bottom:calc(80px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
-                width:calc(100% - 32px);max-width:440px;
-                background:rgba(26,26,46,.97);backdrop-filter:blur(12px);
-                border:1px solid rgba(100,149,255,.35);border-radius:16px;
-                padding:18px;z-index:9999;
-                box-shadow:0 8px 40px rgba(0,0,0,.6);
-                display:flex;flex-direction:column;gap:14px;
-                font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;
-                animation:slideUp .3s ease;
-            `;
-            banner.innerHTML = `
-                <div style="display:flex;align-items:flex-start;gap:14px;">
-                    <span style="font-size:30px;line-height:1;flex-shrink:0">🔔</span>
-                    <div>
-                        <p style="margin:0;font-size:14px;font-weight:700;color:#e0e0e0;">Ativar avisos do MentorFin?</p>
-                        <p style="margin:5px 0 0;font-size:12.5px;color:#a0a0b0;line-height:1.45;">
-                            Saiba na hora quando seu consultor responder ou publicar um planejamento —
-                            e receba um lembrete por semana, não todo dia.
-                        </p>
-                    </div>
-                </div>
-                <div style="display:flex;gap:8px;justify-content:flex-end;">
-                    <button id="mf-notif-nao" style="padding:9px 18px;background:transparent;cursor:pointer;
-                        border:1px solid rgba(100,149,255,.3);border-radius:8px;color:#a0a0b0;font-size:13px;font-family:inherit;">Agora não</button>
-                    <button id="mf-notif-sim" style="padding:9px 22px;cursor:pointer;
-                        background:linear-gradient(135deg,#6495ff,#4a7dff);border:none;border-radius:8px;
-                        color:#fff;font-size:13px;font-weight:700;font-family:inherit;">✓ Ativar avisos</button>
-                </div>`;
-
-            document.body.appendChild(banner);
-
-            const fechar = ok => {
-                banner.remove();
-                if (!ok) gravarLS('mentorfin_convite_notif_ate', String(Date.now() + CONVITE_PAUSA_DIAS * 864e5));
-                resolve(ok);
-            };
-            // A permissão precisa ser pedida DENTRO do toque (exigência do iPhone/Safari)
-            document.getElementById('mf-notif-sim')?.addEventListener('click', () => { banner.remove(); ativarAvisos().then(r => resolve(r === 'granted')); });
-            document.getElementById('mf-notif-nao')?.addEventListener('click', () => fechar(false));
-            setTimeout(() => { if (document.getElementById('mf-notif-banner')) { banner.remove(); resolve(false); } }, 20000);
-        });
-    }
-
-    async function inscreverAparelho({ avisarErro = false } = {}) {
-        if (typeof PushModule === 'undefined') return { ok: false, motivo: 'sem_push_js' };
-        const r = await PushModule.inscrever('cliente');
-        if (!r.ok && avisarErro && r.motivo !== 'sem_suporte') {
-            console.warn('Push não ativado:', r);
-            UIModule?.showError?.('Não consegui ativar os avisos com o app fechado neste aparelho. Tente de novo mais tarde.');
-        }
-        return r;
-    }
-
-    /** Pedido explícito (botão no Perfil ou "Ativar" no convite). Precisa vir de um toque. */
-    async function ativarAvisos() {
-        if (typeof PushModule !== 'undefined' && PushModule.suporte() === 'ios_instalar') {
-            UIModule?.showMessage?.(PushModule.DICA_IOS, 'info', 12000);
-            atualizarBotaoAvisos();
-            return 'ios_instalar';
-        }
-        const resultado = typeof SomModule !== 'undefined'
-            ? await SomModule.pedirPermissaoSistema()
-            : ('Notification' in window ? await Notification.requestPermission() : 'unsupported');
-        atualizarBotaoAvisos();
-        if (resultado === 'granted') {
-            const r = await inscreverAparelho({ avisarErro: true });
-            if (r.ok) UIModule?.showSuccess?.('🔔 Avisos ativados neste aparelho.');
-            atualizarBotaoAvisos();
-        } else if (resultado === 'denied') {
-            UIModule?.showError?.('Os avisos estão bloqueados. Libere as notificações do MentorFin nas configurações do navegador/celular.');
-        }
-        return resultado;
-    }
-
-    /** Botão "Enviar aviso de teste" do Perfil. */
-    async function testarAvisos() {
-        const btn = document.getElementById('btnTestarAvisos');
-        if (btn) { btn.disabled = true; btn.textContent = 'Enviando…'; }
-        try {
-            const r0 = await inscreverAparelho();
-            if (!r0.ok) {
-                UIModule?.showError?.('Ative os avisos neste aparelho primeiro.');
-                return;
-            }
-            const r = await PushModule.testar();
-            if (r.ok) UIModule?.showSuccess?.('Aviso de teste enviado! Ele deve aparecer em alguns segundos.');
-            else UIModule?.showError?.('O aviso de teste não saiu. Avise seu consultor para conferir a configuração.' + (r.detalhe ? ` (${r.detalhe})` : ''));
-        } finally {
-            if (btn) { btn.disabled = false; btn.textContent = '📨 Enviar aviso de teste'; }
-        }
-    }
-
-    function atualizarBotaoAvisos() {
-        const btn   = document.getElementById('btnAtivarAvisos');
-        const teste = document.getElementById('btnTestarAvisos');
-        const dica  = document.getElementById('avisosDicaIOS');
-        const sup   = typeof PushModule !== 'undefined' ? PushModule.suporte()
-                    : ('Notification' in window ? 'ok' : 'sem_suporte');
-        const perm  = 'Notification' in window ? Notification.permission : 'unsupported';
-
-        if (dica) {
-            dica.textContent = typeof PushModule !== 'undefined' ? PushModule.DICA_IOS : '';
-            dica.classList.toggle('hidden', sup !== 'ios_instalar');
-        }
-        if (teste) teste.classList.toggle('hidden', !(sup === 'ok' && perm === 'granted'));
-        if (!btn) return;
-        btn.classList.toggle('hidden', sup === 'sem_suporte');
-        btn.disabled = sup === 'ok' && perm === 'granted';
-        btn.textContent = sup === 'ios_instalar' ? '📲 Como ativar avisos no iPhone'
-            : perm === 'granted' ? '🔔 Avisos neste aparelho: ativados'
-            : perm === 'denied' ? '🔕 Avisos bloqueados — toque para ver como liberar'
-            : '🔔 Ativar avisos neste aparelho';
-        if (perm === 'denied') btn.disabled = false;
-    }
-
-    // ─────────────────────────────────────────────────────────
-    // PONTO DE ENTRADA
-    // ─────────────────────────────────────────────────────────
-    async function inicializar(clienteId) {
-        if (!clienteId || clienteAtual === clienteId) return;
-        clienteAtual = clienteId;
-
-        ligarAvisoPlanejamento(clienteId);
-        atualizarBotaoAvisos();
-
-        // Se a gamificação já calculou antes de chegarmos aqui, lembra agora.
-        if (typeof GamificacaoModule !== 'undefined' && GamificacaoModule.estadoAtual?.()) {
-            lembreteSemanal(GamificacaoModule.estadoAtual());
-        }
-
-        if (typeof PushModule !== 'undefined') {
-            // iPhone fora da Tela de Início: explica como instalar (no máximo a cada 14 dias)
-            if (PushModule.suporte() === 'ios_instalar') {
-                if (!conviteEmPausa()) {
-                    await new Promise(r => setTimeout(r, 6000));
-                    await esperarTourFechar();
-                    gravarLS('mentorfin_convite_notif_ate', String(Date.now() + CONVITE_PAUSA_DIAS * 864e5));
-                    exibirToastLembrete('📲 ' + PushModule.DICA_IOS, '🔔');
-                }
-                return;
-            }
-            await PushModule.registrarSW();
-        }
-        if (!('Notification' in window)) return;
-        if (Notification.permission === 'denied') return;
-
-        if (Notification.permission === 'granted') {
-            // Renova a inscrição a cada login (o aparelho pode ter trocado de conta ou de chave)
-            await inscreverAparelho();
-            return;
-        }
-
-        // Permissão ainda não pedida: convite gentil depois de a pessoa se ambientar
-        await new Promise(r => setTimeout(r, 6000));
-        await mostrarBannerConvite();
-        atualizarBotaoAvisos();
-    }
-
-    return { inicializar, lembreteSemanal, ativarAvisos, testarAvisos, atualizarBotaoAvisos, frases: FRASES_LEMBRETE };
-})();
-
-console.log('✅ notifications.js carregado');
+window.Notifications = Notifications;

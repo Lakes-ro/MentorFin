@@ -53,6 +53,9 @@ const TransactionsModule = (() => {
         const clienteNome   = t.clientes?.nome     || '';
         const categoriaNome = t.categorias?.nome   || 'Sem categoria';
         const grupoLabel    = GRUPO_LABEL[t.categorias?.grupo] || '';
+        // Nome da carteira (só aparece quando o cliente tem 2+ carteiras)
+        const carteiraNome  = (typeof CarteirasModule !== 'undefined') ? CarteirasModule.nomeDaCarteira(t.carteira_id) : '';
+        const linhaCategoria = [grupoLabel, carteiraNome ? '🏦 ' + carteiraNome : ''].filter(Boolean).join(' · ');
         const descricao     = t.descricao ? ` · ${esc(t.descricao)}` : '';
 
         const linhaDesc = clienteNome
@@ -65,7 +68,7 @@ const TransactionsModule = (() => {
             <div class="transaction-item ${t.tipo}" data-transaction-id="${t.id}">
                 <div class="transaction-info">
                     <div class="transaction-description">${linhaDesc}</div>
-                    <div class="transaction-category">${grupoLabel}</div>
+                    <div class="transaction-category">${esc(linhaCategoria)}</div>
                     <div class="transaction-date">${data}</div>
                 </div>
                 <div class="transaction-value-actions">
